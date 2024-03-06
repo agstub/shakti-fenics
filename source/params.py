@@ -7,7 +7,7 @@ theta = 0.25     # time integration parameter:
                  # 1 = Backward Euler
 
 #spatial discretization:
-H = 500          # ice thickness (m)
+H = 500          # ice thickness (m) [uniform examples]
 L =  2*H         # length of domain
 W =  2*H         # width of domain
 

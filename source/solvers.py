@@ -28,7 +28,7 @@ def get_bcs(V,domain):
     bcs = [bc_l]
     return bcs
 
-def weak_form(V,domain,sol,sol_n,z_b,q_in,moulin,dt):
+def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,moulin,dt):
     # define functions
     (b,N,q) = split(sol)           # solution
     (b_,N_,q_) = TestFunctions(V)  # test functions
@@ -38,7 +38,7 @@ def weak_form(V,domain,sol,sol_n,z_b,q_in,moulin,dt):
     b_theta = theta*b + (1-theta)*b_n
     q_theta = theta*q + (1-theta)*q_n
     N_theta = theta*N + (1-theta)*N_n
-    h_theta = h(N_theta,z_b)
+    h_theta = h(N_theta,z_b,z_s)
 
     n_ = FacetNormal(domain)
 
@@ -54,19 +54,19 @@ def weak_form(V,domain,sol,sol_n,z_b,q_in,moulin,dt):
     F_b = (b-b_n - dt*( M(q_theta,h_theta)/rho_i - C(b_theta,N_theta)))*b_*dx
 
     # weak form for water flux divergence div(q) equation:
-    F_N = -dot(Q(b,h(N,z_b), Re(q_n)),grad(N_))*dx + ((1/rho_i-1/rho_w)*M(q,h(N,z_b)) - C(b,N)-lake-moulin)*N_*dx
+    F_N = -dot(Q(b,h(N,z_b,z_s), Re(q_n)),grad(N_))*dx + ((1/rho_i-1/rho_w)*M(q,h(N,z_b,z_s)) - C(b,N)-lake-moulin)*N_*dx
     
     # inflow natural/Neumann BC on the water flux:
     F_bdry = dot(q_in,n_)*N_*ds 
     
     # weak form of water flux definitionL
-    F_q = inner((q - Q(b,h(N,z_b),Re(q_n))),q_)*dx
+    F_q = inner((q - Q(b,h(N,z_b,z_s),Re(q_n))),q_)*dx
 
     # sum all weak forms:
     F = F_b + F_N + F_q + F_bdry
     return F
 
-def solve_pde(domain,sol_n,z_b,q_in,moulin,dt):
+def solve_pde(domain,sol_n,z_b,z_s,q_in,moulin,dt):
         # solves the hydrology problem for (b,N,q)
 
         # Define function spaces
@@ -77,7 +77,7 @@ def solve_pde(domain,sol_n,z_b,q_in,moulin,dt):
 
         # define weak form
         sol = Function(V)
-        F =  weak_form(V,domain,sol,sol_n,z_b,q_in,moulin,dt)
+        F =  weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,moulin,dt)
 
         set_log_level(LogLevel.ERROR)
 
@@ -105,12 +105,13 @@ def solve_pde(domain,sol_n,z_b,q_in,moulin,dt):
       
         return sol
 
-def time_stepping(domain,initial,timesteps,z_b,q_in,moulin):
+def solve(domain,initial,timesteps,z_b,z_s,q_in,moulin):
     # solve the hydrology problem given:
     # domain: the computational domain
     # initial: initial conditions 
     # timesteps: time array
     # z_b: bed elevation function
+    # z_s: surface elevation function
     # q_in: inflow conditions on domain boundary
     # moulin: water input source term
 
@@ -152,7 +153,7 @@ def time_stepping(domain,initial,timesteps,z_b,q_in,moulin):
             dt = np.abs(timesteps[i]-timesteps[i-1])
     
         # solve the compaction problem for sol = N
-        sol = solve_pde(domain,sol_n,z_b,q_in,moulin,dt)
+        sol = solve_pde(domain,sol_n,z_b,z_s,q_in,moulin,dt)
 
         # save the solutions as numpy arrays
         b_int = Function(V0)

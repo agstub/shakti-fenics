@@ -1,12 +1,12 @@
 # this file contains some constutitve relations for 
 # the hydrology problem
-from params import rho_i,rho_w,H,g,nu,omega,G,Lh,A,n
+from params import rho_i,rho_w,g,nu,omega,G,Lh,A,n
 from ufl import grad, dot
 
-def h(N,z_b):
-    # hydraulic head as a function of effective pressure N 
-    # and bed elevation z_b
-    return z_b + (rho_i/rho_w)*H  - N/(rho_w*g)
+def h(N,z_b,z_s):
+    # hydraulic head as a function of effective pressure N, 
+    # bed elevation z_b, and surface elevation z_s
+    return z_b + (rho_i/rho_w)*(z_s-z_b)  - N/(rho_w*g)
 
 def Q(b,h,Re):
     # water discharge as a function of gap height b,

@@ -3,7 +3,7 @@ from dolfinx.mesh import create_rectangle, CellType
 from dolfinx.fem import Function, FunctionSpace,assemble_scalar,form
 from ufl import dx
 from params import L,W,nx,ny,rho_i,g,H
-from solvers import time_stepping
+from solvers import solve
 from mpi4py import MPI
 from fem_space import mixed_space, vector_space
 import os
@@ -22,6 +22,9 @@ V0 = FunctionSpace(domain, ("CG", 1))
 bed = lambda x: slope*(x[0]+0.5*L)
 z_b = Function(V0)
 z_b.interpolate(bed)
+
+# define surface elevation
+z_s = z_b + H
 
 # define initial conditions
 b0 = 0.01
@@ -52,12 +55,13 @@ q_in.sub(0).interpolate(lambda x:qx0+0*x[0])
 q_in.sub(1).interpolate(lambda x:0+0*x[0])
 
 # define time stepping 
-days = 10
+days = 200
 t_final = (days/365)*3.154e7
 timesteps = np.linspace(0,t_final,int(days*100))
 
-# solve the problem. saves the solution in a 'results' directory
-time_stepping(domain,initial,timesteps,z_b,q_in,moulin)
+# solve the problem
+# results are saved in a 'results' directory
+solve(domain,initial,timesteps,z_b,z_s,q_in,moulin)
 
 
 
