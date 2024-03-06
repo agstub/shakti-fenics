@@ -2,7 +2,7 @@
 import numpy as np
 
 # time integration:
-theta = 0.2      # time integration parameter:
+theta = 0.25     # time integration parameter:
                  # 0 = Forward Euler, 0.5 = trapezoidal
                  # 1 = Backward Euler
 

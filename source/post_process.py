@@ -2,14 +2,11 @@ import numpy as np
 from params import nxi, nyi
 from scipy.interpolate import griddata
 
-def interp(f,domain):
+def interp(f,x,y):
     # interpolate a scalar function f(x,y) at the
     # spatial resolution defined by (nxi,nyi) in params
     # return a numpy array
-    x = domain.geometry.x[:,0]
-    y = domain.geometry.x[:,1]
     points = (x,y)
-
     x_i = np.linspace(x.min(),x.max(),num=nxi)
     y_i = np.linspace(y.min(),y.max(),num=nyi)
     X_i,Y_i = np.meshgrid(x_i,y_i)
