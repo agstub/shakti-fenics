@@ -7,13 +7,14 @@ from petsc4py import PETSc
 from mpi4py import MPI
 from dolfinx.mesh import locate_entities_boundary
 from ufl import dx,FacetNormal, TestFunctions, split, dot,grad,ds,inner,sym
-from params import theta, rho_i, rho_w,L,g,H,nxi,nyi
+from params import theta, rho_i, rho_w,L,g,H,nxi,nyi, X,Y
 from constitutive import M,C,h,Q,Re
-from post_process import interp
 from fem_space import mixed_space
 from dolfinx.log import set_log_level, LogLevel
 import sys
 import os
+from scipy.interpolate import LinearNDInterpolator
+from scipy.spatial import Delaunay
 
 def LeftBoundary(x):
     # Left boundary (inflow/outflow)
@@ -125,12 +126,16 @@ def solve(domain,initial,timesteps,z_b,z_s,q_in,moulin):
     nt = np.size(timesteps)
     dt = np.abs(timesteps[1]-timesteps[0])
 
+    points = comm.gather(domain.geometry.x[:,0:2],root=0)
+    
     # create arrays for saving solution
     if rank == 0:
+        points = np.concatenate(points)
         b = np.zeros((nt,nxi,nyi))
         N = np.zeros((nt,nxi,nyi))
         qx = np.zeros((nt,nxi,nyi))
         qy = np.zeros((nt,nxi,nyi))
+        triang = Delaunay(points) 
 
     V = mixed_space(domain)
     sol_n = Function(V)
@@ -166,24 +171,21 @@ def solve(domain,initial,timesteps,z_b,z_s,q_in,moulin):
         qx_int.interpolate(Expression(sol.sub(2).sub(0), V0.element.interpolation_points()))
         qy_int.interpolate(Expression(sol.sub(2).sub(1), V0.element.interpolation_points()))
 
-        x = comm.gather(domain.geometry.x[:,0],root=0)
-        y = comm.gather(domain.geometry.x[:,1],root=0)
         b__ = comm.gather(b_int.x.array,root=0)
         N__ = comm.gather(N_int.x.array,root=0)
         qx__ = comm.gather(qx_int.x.array,root=0)
         qy__ = comm.gather(qy_int.x.array,root=0)
 
         if rank == 0:
-            x = np.concatenate(x).ravel()
-            y = np.concatenate(y).ravel()
             b__ = np.concatenate(b__).ravel()
             N__ = np.concatenate(N__).ravel()
             qx__ = np.concatenate(qx__).ravel()
             qy__ = np.concatenate(qy__).ravel()
-            b[i,:,:] = interp(b__,x,y)
-            N[i,:,:] = interp(N__,x,y)
-            qx[i,:,:] = interp(qx__,x,y)
-            qy[i,:,:] = interp(qy__,x,y)   
+            
+            b[i,:,:] = LinearNDInterpolator(triang, b__)(X,Y)
+            N[i,:,:] = LinearNDInterpolator(triang, N__)(X,Y)
+            qx[i,:,:] = LinearNDInterpolator(triang, qx__)(X,Y)
+            qy[i,:,:] = LinearNDInterpolator(triang, qy__)(X,Y)  
 
         # set solution at previous time step
         sol_n.sub(0).interpolate(sol.sub(0))

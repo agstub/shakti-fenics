@@ -6,7 +6,6 @@ from params import L,W,nx,ny,rho_i,g,H
 from solvers import solve
 from mpi4py import MPI
 from fem_space import mixed_space, vector_space
-import os
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -55,7 +54,7 @@ q_in.sub(0).interpolate(lambda x:qx0+0*x[0])
 q_in.sub(1).interpolate(lambda x:0+0*x[0])
 
 # define time stepping 
-days = 200
+days = 1
 t_final = (days/365)*3.154e7
 timesteps = np.linspace(0,t_final,int(days*100))
 
