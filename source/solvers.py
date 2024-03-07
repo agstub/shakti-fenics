@@ -92,6 +92,14 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,moulin,dt):
         problem = NonlinearProblem(F, sol, bcs=bcs)
         solver = NewtonSolver(MPI.COMM_WORLD, problem)
 
+        ksp = solver.krylov_solver
+        opts = PETSc.Options()
+        option_prefix = ksp.getOptionsPrefix()
+        opts[f"{option_prefix}ksp_type"] = "preonly" #preonly / cg?
+        opts[f"{option_prefix}pc_type"] = "ksp" # ksp / 
+        opts[f"{option_prefix}pc_factor_mat_solver_type"]="mumps"
+        ksp.setFromOptions()
+
         n, converged = solver.solve(sol)
 
         # bound gap height below by small amount (1mm)
