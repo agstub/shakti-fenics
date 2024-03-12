@@ -27,3 +27,9 @@ def M(q,h):
 def C(b,N):
     # viscous closure term
     return A*b*N*abs(N)**(n-1)
+
+def potential(z_b,z_s):
+    # basic hydraulic potential gradient
+    # for plotting model setup
+    p = grad(z_b + (rho_i/rho_w)*(z_s-z_b))
+    return p,dot(p,p)**(0.5)

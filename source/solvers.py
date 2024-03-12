@@ -8,7 +8,7 @@ from mpi4py import MPI
 from dolfinx.mesh import locate_entities_boundary
 from ufl import dx,FacetNormal, TestFunctions, split, dot,grad,ds,inner,sym
 from params import theta, rho_i, rho_w,L,g,H,nxi,nyi, X,Y
-from constitutive import M,C,h,Q,Re
+from constitutive import M,C,h,Q,Re,potential
 from fem_space import mixed_space
 from dolfinx.log import set_log_level, LogLevel
 import sys
@@ -43,10 +43,14 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,moulin,dt):
 
     n_ = FacetNormal(domain)
 
-    # define storage function (0=no storage, 1=perfect storage)
-    sigma = 1e-3
-    B = sym(grad(q_n))
-    storage = np.exp(1)**(-inner(B,B)/sigma**2)
+    # # define storage function (0=no storage, 1=perfect storage)
+    # sigma = 1e-2
+    # B = q_n 
+    # storage = np.exp(1)**(-inner(B,B)**4/sigma**8)
+
+    p,p_norm = potential(z_b,z_s)
+    sigma = 0.02/3.0
+    storage = np.exp(1)**(-p_norm**8/sigma**8)
 
     # define term for lake activity
     lake = storage*(1/(rho_w*g*dt))*(N-N_n)
@@ -91,22 +95,30 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,moulin,dt):
         # Solve for sol = (b,N,q)
         problem = NonlinearProblem(F, sol, bcs=bcs)
         solver = NewtonSolver(MPI.COMM_WORLD, problem)
+        
+        solver.error_on_nonconvergence = False
+        
+        ksp = solver.krylov_solver
+        opts = PETSc.Options()
+        option_prefix = ksp.getOptionsPrefix()
+        opts[f"{option_prefix}ksp_type"] = "preonly" #preonly / cg?
+        opts[f"{option_prefix}pc_type"] = "ksp" # ksp / 
+        opts[f"{option_prefix}pc_factor_mat_solver_type"]="mumps"
+        ksp.setFromOptions()
 
         n, converged = solver.solve(sol)
-
-        # bound gap height below by small amount (1mm)
-        V0 = FunctionSpace(domain, ("CG", 1))
-        b_temp = Function(V0)
-        b_temp.interpolate(Expression(sol.sub(0), V0.element.interpolation_points()))
-        b_temp.x.array[b_temp.x.array<1e-3] = 1e-3
-        sol.sub(0).interpolate(b_temp)
-
-        assert(converged)
-   
+        
+        if converged == True:
+            # bound gap height below by small amount (1mm)
+            V0 = FunctionSpace(domain, ("CG", 1))
+            b_temp = Function(V0)
+            b_temp.interpolate(Expression(sol.sub(0), V0.element.interpolation_points()))
+            b_temp.x.array[b_temp.x.array<1e-3] = 1e-3
+            sol.sub(0).interpolate(b_temp)
       
-        return sol
+        return sol, converged
 
-def solve(domain,initial,timesteps,z_b,z_s,q_in,moulin):
+def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,moulin,nt_save):
     # solve the hydrology problem given:
     # domain: the computational domain
     # initial: initial conditions 
@@ -130,12 +142,14 @@ def solve(domain,initial,timesteps,z_b,z_s,q_in,moulin):
     
     # create arrays for saving solution
     if rank == 0:
+        nti = int(nt/nt_save)
         points = np.concatenate(points)
-        b = np.zeros((nt,nxi,nyi))
-        N = np.zeros((nt,nxi,nyi))
-        qx = np.zeros((nt,nxi,nyi))
-        qy = np.zeros((nt,nxi,nyi))
+        b = np.zeros((nti,nxi,nyi))
+        N = np.zeros((nti,nxi,nyi))
+        qx = np.zeros((nti,nxi,nyi))
+        qy = np.zeros((nti,nxi,nyi))
         triang = Delaunay(points) 
+        j = 0
 
     V = mixed_space(domain)
     sol_n = Function(V)
@@ -158,7 +172,10 @@ def solve(domain,initial,timesteps,z_b,z_s,q_in,moulin):
             dt = np.abs(timesteps[i]-timesteps[i-1])
     
         # solve the compaction problem for sol = N
-        sol = solve_pde(domain,sol_n,z_b,z_s,q_in,moulin,dt)
+        sol, converged = solve_pde(domain,sol_n,z_b,z_s,q_in,moulin,dt)
+        
+        if converged == False:
+            break
 
         # save the solutions as numpy arrays
         b_int = Function(V0)
@@ -171,21 +188,24 @@ def solve(domain,initial,timesteps,z_b,z_s,q_in,moulin):
         qx_int.interpolate(Expression(sol.sub(2).sub(0), V0.element.interpolation_points()))
         qy_int.interpolate(Expression(sol.sub(2).sub(1), V0.element.interpolation_points()))
 
-        b__ = comm.gather(b_int.x.array,root=0)
-        N__ = comm.gather(N_int.x.array,root=0)
-        qx__ = comm.gather(qx_int.x.array,root=0)
-        qy__ = comm.gather(qy_int.x.array,root=0)
 
-        if rank == 0:
-            b__ = np.concatenate(b__).ravel()
-            N__ = np.concatenate(N__).ravel()
-            qx__ = np.concatenate(qx__).ravel()
-            qy__ = np.concatenate(qy__).ravel()
+        if i % nt_save == 0:
+            b__ = comm.gather(b_int.x.array,root=0)
+            N__ = comm.gather(N_int.x.array,root=0)
+            qx__ = comm.gather(qx_int.x.array,root=0)
+            qy__ = comm.gather(qy_int.x.array,root=0)
             
-            b[i,:,:] = LinearNDInterpolator(triang, b__)(X,Y)
-            N[i,:,:] = LinearNDInterpolator(triang, N__)(X,Y)
-            qx[i,:,:] = LinearNDInterpolator(triang, qx__)(X,Y)
-            qy[i,:,:] = LinearNDInterpolator(triang, qy__)(X,Y)  
+            if rank == 0:
+                b__ = np.concatenate(b__).ravel()
+                N__ = np.concatenate(N__).ravel()
+                qx__ = np.concatenate(qx__).ravel()
+                qy__ = np.concatenate(qy__).ravel()
+
+                b[j,:,:] = LinearNDInterpolator(triang, b__)(X,Y)
+                N[j,:,:] = LinearNDInterpolator(triang, N__)(X,Y)
+                qx[j,:,:] = LinearNDInterpolator(triang, qx__)(X,Y)
+                qy[j,:,:] = LinearNDInterpolator(triang, qy__)(X,Y)  
+                j += 1
 
         # set solution at previous time step
         sol_n.sub(0).interpolate(sol.sub(0))
@@ -194,12 +214,13 @@ def solve(domain,initial,timesteps,z_b,z_s,q_in,moulin):
         sol_n.sub(2).sub(1).interpolate(sol.sub(2).sub(1))
 
     if rank == 0:
-        os.mkdir('./results')
-        np.save('./results/b.npy',b)
-        np.save('./results/N.npy',N)
-        np.save('./results/qx.npy',qx)
-        np.save('./results/qy.npy',qy)
-        np.save('./results/t.npy',timesteps)
+        t = np.linspace(0,timesteps.max(),nti)
+        os.mkdir('./'+resultsname)
+        np.save('./'+resultsname+'/b.npy',b)
+        np.save('./'+resultsname+'/N.npy',N)
+        np.save('./'+resultsname+'/qx.npy',qx)
+        np.save('./'+resultsname+'/qy.npy',qy)
+        np.save('./'+resultsname+'/t.npy',t)
 
     return 
 
