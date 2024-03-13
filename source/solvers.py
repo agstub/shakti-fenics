@@ -8,7 +8,7 @@ from mpi4py import MPI
 from dolfinx.mesh import locate_entities_boundary
 from ufl import dx,FacetNormal, TestFunctions, split, dot,grad,ds,inner,sym
 from params import theta, rho_i, rho_w,L,g,H,nxi,nyi, X,Y
-from constitutive import M,C,h,Q,Re,potential
+from constitutive import M,C,h,Q,Re,potential,storage
 from fem_space import mixed_space
 from dolfinx.log import set_log_level, LogLevel
 import sys
@@ -44,16 +44,11 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,moulin,dt):
     n_ = FacetNormal(domain)
 
     # # define storage function (0=no storage, 1=perfect storage)
-    # sigma = 1e-2
-    # B = q_n 
-    # storage = np.exp(1)**(-inner(B,B)**4/sigma**8)
-
     p,p_norm = potential(z_b,z_s)
-    sigma = 0.02/3.0
-    storage = np.exp(1)**(-p_norm**8/sigma**8)
+    nu = storage(p_norm)
 
     # define term for lake activity
-    lake = storage*(1/(rho_w*g*dt))*(N-N_n)
+    lake = nu*(1/(rho_w*g*dt))*(N-N_n)
     
     # weak form for gap height evolution (db/dt) equation:
     F_b = (b-b_n - dt*( M(q_theta,h_theta)/rho_i - C(b_theta,N_theta)))*b_*dx
@@ -102,15 +97,7 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,moulin,dt):
         opts = PETSc.Options()
         option_prefix = ksp.getOptionsPrefix()
         opts[f"{option_prefix}ksp_type"] = "preonly" #preonly / cg?
-        opts[f"{option_prefix}pc_type"] = "ksp" # ksp / 
-        opts[f"{option_prefix}pc_factor_mat_solver_type"]="mumps"
-        ksp.setFromOptions()
-
-        ksp = solver.krylov_solver
-        opts = PETSc.Options()
-        option_prefix = ksp.getOptionsPrefix()
-        opts[f"{option_prefix}ksp_type"] = "preonly" #preonly / cg?
-        opts[f"{option_prefix}pc_type"] = "ksp" # ksp / 
+        opts[f"{option_prefix}pc_type"] = "ksp" # ksp ?
         opts[f"{option_prefix}pc_factor_mat_solver_type"]="mumps"
         ksp.setFromOptions()
 
@@ -157,6 +144,9 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,moulin,nt_save):
         qx = np.zeros((nti,nxi,nyi))
         qy = np.zeros((nti,nxi,nyi))
         triang = Delaunay(points) 
+        t_i = np.linspace(0,timesteps.max(),nti)
+        os.mkdir('./'+resultsname)
+        np.save('./'+resultsname+'/t.npy',t_i)
         j = 0
 
     V = mixed_space(domain)
@@ -213,6 +203,12 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,moulin,nt_save):
                 N[j,:,:] = LinearNDInterpolator(triang, N__)(X,Y)
                 qx[j,:,:] = LinearNDInterpolator(triang, qx__)(X,Y)
                 qy[j,:,:] = LinearNDInterpolator(triang, qy__)(X,Y)  
+                
+                np.save('./'+resultsname+'/b.npy',b)
+                np.save('./'+resultsname+'/N.npy',N)
+                np.save('./'+resultsname+'/qx.npy',qx)
+                np.save('./'+resultsname+'/qy.npy',qy)
+                
                 j += 1
 
         # set solution at previous time step
@@ -220,15 +216,6 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,moulin,nt_save):
         sol_n.sub(1).interpolate(sol.sub(1))
         sol_n.sub(2).sub(0).interpolate(sol.sub(2).sub(0))
         sol_n.sub(2).sub(1).interpolate(sol.sub(2).sub(1))
-
-    if rank == 0:
-        t = np.linspace(0,timesteps.max(),nti)
-        os.mkdir('./'+resultsname)
-        np.save('./'+resultsname+'/b.npy',b)
-        np.save('./'+resultsname+'/N.npy',N)
-        np.save('./'+resultsname+'/qx.npy',qx)
-        np.save('./'+resultsname+'/qy.npy',qy)
-        np.save('./'+resultsname+'/t.npy',t)
 
     return 
 

@@ -2,6 +2,7 @@
 # the hydrology problem
 from params import rho_i,rho_w,g,nu,omega,G,Lh,A,n
 from ufl import grad, dot
+import numpy as np
 
 def h(N,z_b,z_s):
     # hydraulic head as a function of effective pressure N, 
@@ -33,3 +34,7 @@ def potential(z_b,z_s):
     # for plotting model setup
     p = grad(z_b + (rho_i/rho_w)*(z_s-z_b))
     return p,dot(p,p)**(0.5)
+
+def storage(p_norm):
+    sigma = 0.02/3.0
+    return np.exp(1)**(-p_norm**8/sigma**8)
