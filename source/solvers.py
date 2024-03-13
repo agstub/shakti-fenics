@@ -29,7 +29,7 @@ def get_bcs(V,domain):
     bcs = [bc_l]
     return bcs
 
-def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,moulin,dt):
+def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt):
     # define functions
     (b,N,q) = split(sol)           # solution
     (b_,N_,q_) = TestFunctions(V)  # test functions
@@ -54,7 +54,7 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,moulin,dt):
     F_b = (b-b_n - dt*( M(q_theta,h_theta)/rho_i - C(b_theta,N_theta)))*b_*dx
 
     # weak form for water flux divergence div(q) equation:
-    F_N = -dot(Q(b,h(N,z_b,z_s), Re(q_n)),grad(N_))*dx + ((1/rho_i-1/rho_w)*M(q,h(N,z_b,z_s)) - C(b,N)-lake-moulin)*N_*dx
+    F_N = -dot(Q(b,h(N,z_b,z_s), Re(q_n)),grad(N_))*dx + ((1/rho_i-1/rho_w)*M(q,h(N,z_b,z_s)) - C(b,N)-lake-inputs)*N_*dx
     
     # inflow natural/Neumann BC on the water flux:
     F_bdry = dot(q_in,n_)*N_*ds 
@@ -66,7 +66,7 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,moulin,dt):
     F = F_b + F_N + F_q + F_bdry
     return F
 
-def solve_pde(domain,sol_n,z_b,z_s,q_in,moulin,dt):
+def solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt):
         # solves the hydrology problem for (b,N,q)
 
         # Define function spaces
@@ -77,7 +77,7 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,moulin,dt):
 
         # define weak form
         sol = Function(V)
-        F =  weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,moulin,dt)
+        F =  weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt)
 
         set_log_level(LogLevel.ERROR)
 
@@ -113,7 +113,7 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,moulin,dt):
       
         return sol, converged
 
-def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,moulin,nt_save):
+def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
     # solve the hydrology problem given:
     # domain: the computational domain
     # initial: initial conditions 
@@ -121,11 +121,15 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,moulin,nt_save):
     # z_b: bed elevation function
     # z_s: surface elevation function
     # q_in: inflow conditions on domain boundary
-    # moulin: water input source term
+    # inputs: water input source term
 
     # *see example.ipynb for an example of how to set these
 
-    # The solver returns...
+    # The solution is saved in a directory:
+    # b = subglacial gap height (m)
+    # qx = subglacial water flux [x component] (m^/s)
+    # qy = subglacial water flux [y component] (m^/s)
+    # N = effective pressure (Pa)
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -170,7 +174,7 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,moulin,nt_save):
             dt = np.abs(timesteps[i]-timesteps[i-1])
     
         # solve the compaction problem for sol = N
-        sol, converged = solve_pde(domain,sol_n,z_b,z_s,q_in,moulin,dt)
+        sol, converged = solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt)
         
         if converged == False:
             break

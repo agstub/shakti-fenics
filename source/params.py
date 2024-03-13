@@ -6,7 +6,7 @@ theta = 0.0      # time integration parameter:
                  # 0 = Forward Euler, 0.5 = trapezoidal
                  # 1 = Backward Euler
 
-resultsname = 'results-fixed'        
+resultsname = 'results'        
         
 #spatial discretization:
 H = 500            # ice thickness (m) [uniform examples]

@@ -1,3 +1,6 @@
+# this file sets the main model options like the spatial domain (horizontal map-plane), 
+# surface elevation, bed elevation, and meltwater inputs (inflow and distributed source)
+# see params.py where other model parameters are defined.
 import numpy as np
 from dolfinx.mesh import create_rectangle, CellType
 from dolfinx.fem import Function, FunctionSpace
@@ -46,9 +49,9 @@ b_temp.x.array[:] = b0 + np.random.normal(scale=0.005,size=np.size(b_temp.x.arra
 initial.sub(0).interpolate(b_temp)
 
 # define moulin source term
-moulin = Function(V0)
-moulin_ = lambda x: q_dist + 0*x[0] 
-moulin.interpolate(moulin_)
+inputs = Function(V0)
+inputs_ = lambda x: q_dist + 0*x[0] 
+inputs.interpolate(inputs_)
 
 # define water flux boundary condition (Neumann)
 V_q = vector_space(domain)
