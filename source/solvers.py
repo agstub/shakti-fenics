@@ -43,7 +43,7 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt):
 
     n_ = FacetNormal(domain)
 
-    # # define storage function (0=no storage, 1=perfect storage)
+    # define storage function (0=no storage, 1=perfect storage)
     p,p_norm = potential(z_b,z_s)
     nu = storage(p_norm)
 
@@ -84,14 +84,14 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt):
         # # set initial guess for Newton solver
         sol.sub(0).interpolate(sol_n.sub(0))
         sol.sub(1).interpolate(sol_n.sub(1))
-        sol.sub(2).sub(0).interpolate( sol_n.sub(2).sub(0))
-        sol.sub(2).sub(1).interpolate( sol_n.sub(2).sub(1))
+        sol.sub(2).sub(0).interpolate(sol_n.sub(2).sub(0))
+        sol.sub(2).sub(1).interpolate(sol_n.sub(2).sub(1))
 
         # Solve for sol = (b,N,q)
         problem = NonlinearProblem(F, sol, bcs=bcs)
         solver = NewtonSolver(MPI.COMM_WORLD, problem)
         
-        solver.error_on_nonconvergence = False
+        # solver.error_on_nonconvergence = False
         
         ksp = solver.krylov_solver
         opts = PETSc.Options()
@@ -102,6 +102,7 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt):
         ksp.setFromOptions()
 
         n, converged = solver.solve(sol)
+        assert (converged)
         
         if converged == True:
             # bound gap height below by small amount (1mm)
@@ -143,10 +144,10 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
     if rank == 0:
         nti = int(nt/nt_save)
         points = np.concatenate(points)
-        b = np.zeros((nti,nxi,nyi))
-        N = np.zeros((nti,nxi,nyi))
-        qx = np.zeros((nti,nxi,nyi))
-        qy = np.zeros((nti,nxi,nyi))
+        b = np.zeros((nti,nyi,nxi))
+        N = np.zeros((nti,nyi,nxi))
+        qx = np.zeros((nti,nyi,nxi))
+        qy = np.zeros((nti,nyi,nxi))
         triang = Delaunay(points) 
         t_i = np.linspace(0,timesteps.max(),nti)
         os.mkdir('./'+resultsname)
