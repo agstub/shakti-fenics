@@ -11,7 +11,3 @@ from solvers import solve
 solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save)
 
 
-
-
-
-

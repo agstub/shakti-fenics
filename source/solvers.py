@@ -1,6 +1,6 @@
 # This file contains the functions needed for solving the subglacial hydrology problem.
 import numpy as np
-from dolfinx.fem import dirichletbc,Function,FunctionSpace,locate_dofs_topological,Expression
+from dolfinx.fem import dirichletbc,Function,functionspace,locate_dofs_topological,Expression
 from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.nls.petsc import NewtonSolver
 from petsc4py import PETSc
@@ -15,6 +15,7 @@ import sys
 import os
 from scipy.interpolate import LinearNDInterpolator
 from scipy.spatial import Delaunay
+
 
 def LeftBoundary(x):
     # Left boundary (inflow/outflow)
@@ -66,6 +67,7 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt):
     F = F_b + F_N + F_q + F_bdry
     return F
 
+
 def solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt):
         # solves the hydrology problem for (b,N,q)
 
@@ -79,7 +81,7 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt):
         sol = Function(V)
         F =  weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt)
 
-        set_log_level(LogLevel.ERROR)
+        set_log_level(LogLevel.WARNING)
 
         # # set initial guess for Newton solver
         sol.sub(0).interpolate(sol_n.sub(0))
@@ -90,7 +92,7 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt):
         # Solve for sol = (b,N,q)
         problem = NonlinearProblem(F, sol, bcs=bcs)
         solver = NewtonSolver(MPI.COMM_WORLD, problem)
-        
+        solver.max_it = 10
         # solver.error_on_nonconvergence = False
         
         ksp = solver.krylov_solver
@@ -103,15 +105,7 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt):
 
         n, converged = solver.solve(sol)
         assert (converged)
-        
-        if converged == True:
-            # bound gap height below by small amount (1mm)
-            V0 = FunctionSpace(domain, ("CG", 1))
-            b_temp = Function(V0)
-            b_temp.interpolate(Expression(sol.sub(0), V0.element.interpolation_points()))
-            b_temp.x.array[b_temp.x.array<1e-3] = 1e-3
-            sol.sub(0).interpolate(b_temp)
-      
+
         return sol, converged
 
 def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
@@ -161,7 +155,9 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
     sol_n.sub(2).sub(0).interpolate(initial.sub(2).sub(0))
     sol_n.sub(2).sub(1).interpolate(initial.sub(2).sub(1))
 
-    V0 = FunctionSpace(domain, ("CG", 1))
+    V0 = functionspace(domain, ("CG", 1))
+
+    sol = Function(V)
 
     # # time-stepping loop
     for i in range(nt):
@@ -174,8 +170,17 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
         if i>0:
             dt = np.abs(timesteps[i]-timesteps[i-1])
     
-        # solve the compaction problem for sol = N
+        # solve the hydrology problem for sol = b,q,N
         sol, converged = solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt)
+
+        
+        if converged == True:
+            # bound gap height below by small amount (1mm)
+            V0 = functionspace(domain, ("CG", 1))
+            b_temp = Function(V0)
+            b_temp.interpolate(Expression(sol.sub(0), V0.element.interpolation_points()))
+            b_temp.x.array[b_temp.x.array<1e-3] = 1e-3
+            sol.sub(0).interpolate(b_temp)
         
         if converged == False:
             break
@@ -217,10 +222,7 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
                 j += 1
 
         # set solution at previous time step
-        sol_n.sub(0).interpolate(sol.sub(0))
-        sol_n.sub(1).interpolate(sol.sub(1))
-        sol_n.sub(2).sub(0).interpolate(sol.sub(2).sub(0))
-        sol_n.sub(2).sub(1).interpolate(sol.sub(2).sub(1))
+        sol_n.x.array[:] = sol.x.array
 
     return 
 
