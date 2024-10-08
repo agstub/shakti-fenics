@@ -32,9 +32,9 @@ def get_bcs(V,domain):
 
 def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt):
     # define functions
-    (b,N,q) = split(sol)           # solution
-    (b_,N_,q_) = TestFunctions(V)  # test functions
-    (b_n,N_n,q_n) = split(sol_n)   # sol at previous timestep
+    b,N,q = split(sol)           # solution
+    b_,N_,q_ = TestFunctions(V)  # test functions
+    b_n,N_n,q_n = split(sol_n)   # sol at previous timestep
 
     # define variables for time integration of db/dt equation
     b_theta = theta*b + (1-theta)*b_n
@@ -81,8 +81,6 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt):
         sol = Function(V)
         F =  weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt)
 
-        set_log_level(LogLevel.WARNING)
-
         # # set initial guess for Newton solver
         sol.sub(0).interpolate(sol_n.sub(0))
         sol.sub(1).interpolate(sol_n.sub(1))
@@ -92,21 +90,15 @@ def solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt):
         # Solve for sol = (b,N,q)
         problem = NonlinearProblem(F, sol, bcs=bcs)
         solver = NewtonSolver(MPI.COMM_WORLD, problem)
-        solver.max_it = 10
-        # solver.error_on_nonconvergence = False
-        
+  
         ksp = solver.krylov_solver
         opts = PETSc.Options()
         option_prefix = ksp.getOptionsPrefix()
         opts[f"{option_prefix}ksp_type"] = "preonly" #preonly / cg?
         opts[f"{option_prefix}pc_type"] = "ksp" # ksp ?
-        opts[f"{option_prefix}pc_factor_mat_solver_type"]="mumps"
         ksp.setFromOptions()
 
-        n, converged = solver.solve(sol)
-        assert (converged)
-
-        return sol, converged
+        return solver
 
 def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
     # solve the hydrology problem given:
@@ -125,6 +117,8 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
     # qx = subglacial water flux [x component] (m^/s)
     # qy = subglacial water flux [y component] (m^/s)
     # N = effective pressure (Pa)
+
+    set_log_level(LogLevel.WARNING)
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -159,6 +153,8 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
 
     sol = Function(V)
 
+    solver = solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt)
+
     # # time-stepping loop
     for i in range(nt):
 
@@ -171,7 +167,8 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
             dt = np.abs(timesteps[i]-timesteps[i-1])
     
         # solve the hydrology problem for sol = b,q,N
-        sol, converged = solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt)
+        n, converged = solver.solve(sol)
+        assert (converged)
 
         
         if converged == True:
