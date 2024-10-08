@@ -68,17 +68,13 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt):
     return F
 
 
-def solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt):
+def solve_pde(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt):
         # solves the hydrology problem for (b,N,q)
-
-        # Define function spaces
-        V = mixed_space(domain)
 
         # # Define boundary conditions 
         bcs = get_bcs(V,domain)
 
         # define weak form
-        sol = Function(V)
         F =  weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt)
 
         # # set initial guess for Newton solver
@@ -153,7 +149,7 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
 
     sol = Function(V)
 
-    solver = solve_pde(domain,sol_n,z_b,z_s,q_in,inputs,dt)
+    solver = solve_pde(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt)
 
     # # time-stepping loop
     for i in range(nt):
@@ -162,14 +158,12 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
             print('time step '+str(i+1)+' out of '+str(nt)+' \r',end='')
             sys.stdout.flush()
 
-
         if i>0:
             dt = np.abs(timesteps[i]-timesteps[i-1])
     
         # solve the hydrology problem for sol = b,q,N
         n, converged = solver.solve(sol)
         assert (converged)
-
         
         if converged == True:
             # bound gap height below by small amount (1mm)
