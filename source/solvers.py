@@ -1,6 +1,6 @@
 # This file contains the functions needed for solving the subglacial hydrology problem.
 import numpy as np
-from dolfinx.fem import dirichletbc,Function,functionspace,locate_dofs_topological,Expression
+from dolfinx.fem import Constant,dirichletbc,Function,functionspace,locate_dofs_topological,Expression
 from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.nls.petsc import NewtonSolver
 from petsc4py import PETSc
@@ -23,7 +23,7 @@ def LeftBoundary(x):
 
 def get_bcs(V,domain):
     # assign Dirichlet boundary conditions on effective pressure
-    N_left = rho_i*g*H
+    N_left = rho_i*g*10 
     facets_l = locate_entities_boundary(domain, domain.topology.dim-1, LeftBoundary)   
     dofs_l = locate_dofs_topological(V.sub(1), domain.topology.dim-1, facets_l)
     bc_l = dirichletbc(PETSc.ScalarType(N_left), dofs_l,V.sub(1))
@@ -120,7 +120,9 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
     rank = comm.Get_rank()
 
     nt = np.size(timesteps)
-    dt = np.abs(timesteps[1]-timesteps[0])
+    dt_ = 1e-2*np.abs(timesteps[1]-timesteps[0])
+
+    dt = Constant(domain, dt_)
 
     points = comm.gather(domain.geometry.x[:,0:2],root=0)
     
@@ -159,7 +161,8 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
             sys.stdout.flush()
 
         if i>0:
-            dt = np.abs(timesteps[i]-timesteps[i-1])
+            dt_ = np.abs(timesteps[i]-timesteps[i-1])
+            dt.value = dt_
     
         # solve the hydrology problem for sol = b,q,N
         n, converged = solver.solve(sol)
