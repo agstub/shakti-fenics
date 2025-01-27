@@ -1,5 +1,5 @@
 # shakti-fenics
-Author: Aaron Stubblefield (Dartmouth College)
+Author: Aaron Stubblefield (UMD / NASA)
 
 Implementation of SHAKTI subglacial hydrology model in FEniCSx (https://fenicsproject.org).
 
