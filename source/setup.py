@@ -59,12 +59,12 @@ q_in.sub(0).interpolate(lambda x:qx0+0*x[0])
 q_in.sub(1).interpolate(lambda x:qy0+0*x[0])
 
 # define time stepping 
-days = 1
-nt_per_day = 100
+days = 365
+nt_per_day = 24
 t_final = (days/365)*3.154e7
 timesteps = np.linspace(0,t_final,int(days*nt_per_day))
 
-nt_save = 10#nt_per_day
+nt_save = nt_per_day
 
 
 

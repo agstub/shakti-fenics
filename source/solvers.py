@@ -23,7 +23,7 @@ def LeftBoundary(x):
 
 def get_bcs(V,domain):
     # assign Dirichlet boundary conditions on effective pressure
-    N_left = rho_i*g*10 
+    N_left = rho_i*g*H 
     facets_l = locate_entities_boundary(domain, domain.topology.dim-1, LeftBoundary)   
     dofs_l = locate_dofs_topological(V.sub(1), domain.topology.dim-1, facets_l)
     bc_l = dirichletbc(PETSc.ScalarType(N_left), dofs_l,V.sub(1))
@@ -125,6 +125,8 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
     dt = Constant(domain, dt_)
 
     points = comm.gather(domain.geometry.x[:,0:2],root=0)
+
+    p,p_norm_ = potential(z_b,z_s)
     
     # create arrays for saving solution
     if rank == 0:
@@ -134,6 +136,7 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
         N = np.zeros((nti,nyi,nxi))
         qx = np.zeros((nti,nyi,nxi))
         qy = np.zeros((nti,nyi,nxi))
+        store = np.zeros((nti,nyi,nxi))
         triang = Delaunay(points) 
         t_i = np.linspace(0,timesteps.max(),nti)
         os.mkdir('./'+resultsname)
@@ -179,39 +182,46 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
         if converged == False:
             break
 
-        # save the solutions as numpy arrays
-        b_int = Function(V0)
-        N_int = Function(V0)
-        qx_int = Function(V0)
-        qy_int = Function(V0)
-
-        b_int.interpolate(Expression(sol.sub(0), V0.element.interpolation_points()))
-        N_int.interpolate(Expression(sol.sub(1), V0.element.interpolation_points()))
-        qx_int.interpolate(Expression(sol.sub(2).sub(0), V0.element.interpolation_points()))
-        qy_int.interpolate(Expression(sol.sub(2).sub(1), V0.element.interpolation_points()))
-
 
         if i % nt_save == 0:
+            # save the solutions as numpy arrays
+            b_int = Function(V0)
+            N_int = Function(V0)
+            qx_int = Function(V0)
+            qy_int = Function(V0)
+            storage_int = Function(V0)
+    
+            b_int.interpolate(Expression(sol.sub(0), V0.element.interpolation_points()))
+            N_int.interpolate(Expression(sol.sub(1), V0.element.interpolation_points()))
+            qx_int.interpolate(Expression(sol.sub(2).sub(0), V0.element.interpolation_points()))
+            qy_int.interpolate(Expression(sol.sub(2).sub(1), V0.element.interpolation_points()))
+            storage_int.interpolate(Expression(storage(p_norm_), V0.element.interpolation_points()))
+
             b__ = comm.gather(b_int.x.array,root=0)
             N__ = comm.gather(N_int.x.array,root=0)
             qx__ = comm.gather(qx_int.x.array,root=0)
             qy__ = comm.gather(qy_int.x.array,root=0)
+            storage__ = comm.gather(storage_int.x.array,root=0)
+            
             
             if rank == 0:
                 b__ = np.concatenate(b__).ravel()
                 N__ = np.concatenate(N__).ravel()
                 qx__ = np.concatenate(qx__).ravel()
                 qy__ = np.concatenate(qy__).ravel()
+                storage__ = np.concatenate(storage__).ravel()
 
                 b[j,:,:] = LinearNDInterpolator(triang, b__)(X,Y)
                 N[j,:,:] = LinearNDInterpolator(triang, N__)(X,Y)
                 qx[j,:,:] = LinearNDInterpolator(triang, qx__)(X,Y)
-                qy[j,:,:] = LinearNDInterpolator(triang, qy__)(X,Y)  
+                qy[j,:,:] = LinearNDInterpolator(triang, qy__)(X,Y)
+                store[j,:,:] = LinearNDInterpolator(triang, storage__)(X,Y)
                 
                 np.save('./'+resultsname+'/b.npy',b)
                 np.save('./'+resultsname+'/N.npy',N)
                 np.save('./'+resultsname+'/qx.npy',qx)
                 np.save('./'+resultsname+'/qy.npy',qy)
+                np.save('./'+resultsname+'/storage.npy',store)
                 
                 j += 1
 
