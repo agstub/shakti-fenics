@@ -3,11 +3,11 @@
 # meltwater inputs, etc...
 
 from params import resultsname
-from setup import domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save 
+from setup import domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save, N_bdry 
 from solvers import solve
 
 # solve the problem
 # results are saved in a 'results' directory
-solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save)
+solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,N_bdry,nt_save)
 
 

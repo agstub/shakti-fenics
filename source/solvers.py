@@ -21,12 +21,11 @@ def LeftBoundary(x):
     # Left boundary (inflow/outflow)
     return np.isclose(x[0],-L/2.0)
 
-def get_bcs(V,domain):
+def get_bcs(V,domain,N_bdry):
     # assign Dirichlet boundary conditions on effective pressure
-    N_left = rho_i*g*H 
     facets_l = locate_entities_boundary(domain, domain.topology.dim-1, LeftBoundary)   
     dofs_l = locate_dofs_topological(V.sub(1), domain.topology.dim-1, facets_l)
-    bc_l = dirichletbc(PETSc.ScalarType(N_left), dofs_l,V.sub(1))
+    bc_l = dirichletbc(PETSc.ScalarType(N_bdry), dofs_l,V.sub(1))
     bcs = [bc_l]
     return bcs
 
@@ -43,6 +42,12 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt):
     h_theta = h(N_theta,z_b,z_s)
 
     n_ = FacetNormal(domain)
+
+    # tinkering!
+    head0 = h(0*z_b,z_b,z_s)
+    b0 = 0*z_b + 1e-2 #b_n 
+    rey0 = 1e3 #Re(q_n) #1000
+    q_in  = Q(b0,head0,rey0)
 
     # define storage function (0=no storage, 1=perfect storage)
     p,p_norm = potential(z_b,z_s)
@@ -67,12 +72,11 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt):
     F = F_b + F_N + F_q + F_bdry
     return F
 
-
-def solve_pde(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt):
+def solve_pde(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,N_bdry,dt):
         # solves the hydrology problem for (b,N,q)
 
         # # Define boundary conditions 
-        bcs = get_bcs(V,domain)
+        bcs = get_bcs(V,domain,N_bdry)
 
         # define weak form
         F =  weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt)
@@ -96,7 +100,7 @@ def solve_pde(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt):
 
         return solver
 
-def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
+def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,N_bdry,nt_save):
     # solve the hydrology problem given:
     # domain: the computational domain
     # initial: initial conditions 
@@ -120,7 +124,7 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
     rank = comm.Get_rank()
 
     nt = np.size(timesteps)
-    dt_ = 1e-2*np.abs(timesteps[1]-timesteps[0])
+    dt_ = np.abs(timesteps[1]-timesteps[0])
 
     dt = Constant(domain, dt_)
 
@@ -154,7 +158,7 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
 
     sol = Function(V)
 
-    solver = solve_pde(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt)
+    solver = solve_pde(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,N_bdry,dt)
 
     # # time-stepping loop
     for i in range(nt):
@@ -229,4 +233,3 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save):
         sol_n.x.array[:] = sol.x.array
 
     return 
-
