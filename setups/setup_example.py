@@ -33,8 +33,10 @@ p0 = [-0.5*L,-0.5*W]
 p1 = [0.5*L,0.5*W]
 domain = create_rectangle(MPI.COMM_WORLD,[p0,p1], [nx, ny],cell_type=CellType.triangle) 
 
-# define bed geometry
+# define function space (piecewise linear scalar) for inputs
 V0 = functionspace(domain, ("CG", 1))
+
+# define bed geometry
 bed = lambda x: 0.02*(x[0]+0.5*L) - 100*np.exp(1)**(-((x[0]-0.25*W)**2+x[1]**2)/(2e3**2)) 
 z_b = Function(V0)
 z_b.interpolate(bed)
