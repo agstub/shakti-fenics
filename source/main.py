@@ -1,12 +1,23 @@
-# This is just a wrapper for solving the problem from command line with MPI
-# See setup.py for model setup options like bed and surface geometry,
-# meltwater inputs, etc...
+# This is a wrapper for solving the SHAKTI hydrology problem from command line with MPI
+# See setup.py for exanples of model setup options like bed and surface geometry,
+# meltwater inputs, mesh creation, etc...
 
-from setup import domain,initial,timesteps,z_b,z_s,q_in,inputs,nt_save, N_bdry,OutflowBoundary,resultsname 
 from solvers import solve
+import sys
+import importlib
+sys.path.insert(0, '../setups')
+
+# import model setup module from command line argument
+setup_module = importlib.import_module(sys.argv[1])
+
+# convert to dictionary
+model_setup = {key: getattr(setup_module, key) for key in dir(setup_module) if not key.startswith('__')}
+
+# add model setup name to dict
+model_setup["setup_name"] = sys.argv[1]
 
 # solve the problem
 # results are saved in a 'results' directory
-solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,N_bdry,OutflowBoundary,nt_save)
+solve(model_setup)
 
 

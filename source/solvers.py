@@ -12,6 +12,9 @@ from constitutive import M,C,h,Q,Re,potential,storage
 from fem_space import mixed_space
 from dolfinx.log import set_log_level, LogLevel
 import sys
+import os
+import shutil
+from pathlib import Path
 
 np.set_printoptions(threshold=sys.maxsize)
 
@@ -38,9 +41,9 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,dt):
     n_ = FacetNormal(domain)
 
     # boundary inflow tinkering! notes:
-    head0 = h(0*z_b,z_b,z_s) #neglecting effective pressure at boundary
-    b0 = 0*z_b + 1e-2        # using b_n doesn't converge 
-    rey0 = 1000              # Re(q_n) also works, seems to give slightly lower values
+    head0 = h(0*z_b,z_b,z_s) # neglecting effective pressure at boundary
+    b0 = 0*z_b + 1e-2        # note: using b_n doesn't converge 
+    rey0 = Re(q_n)           # can also just set to a constant, i.e. rey0=1e3
     q_in  = Q(b0,head0,rey0) #approximate flux at boundary: should be small if we choose
                              # a drainage divide and N variations are small
 
@@ -95,7 +98,7 @@ def solve_pde(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,N_bdry,OutflowBoundary,dt):
 
         return solver
 
-def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,N_bdry,OutflowBoundary,nt_save):
+def solve(model_setup):
     # solve the hydrology problem given:
     # domain: the computational domain
     # initial: initial conditions 
@@ -113,6 +116,20 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,N_bdry,Outflo
     # qy = subglacial water flux [y component] (m^/s)
     # N = effective pressure (Pa)
 
+    #unpack model setup dict
+    resultsname = model_setup['resultsname']
+    domain = model_setup['domain']
+    initial = model_setup['initial']
+    timesteps = model_setup['timesteps']
+    nt_save = model_setup['nt_save']
+    z_b = model_setup['z_b']
+    z_s = model_setup['z_s']
+    q_in = model_setup['q_in']
+    inputs = model_setup['inputs']
+    N_bdry = model_setup['N_bdry']
+    OutflowBoundary = model_setup['OutflowBoundary']
+    
+    # set dolfinx log output to desired level
     set_log_level(LogLevel.WARNING)
 
     comm = MPI.COMM_WORLD
@@ -144,21 +161,27 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,N_bdry,Outflo
 
     # create arrays for saving solution
     if rank == 0:
+        os.makedirs(resultsname,exist_ok=True)
+        parent_dir = str((Path(__file__).resolve()).parent.parent)
         nodes_x = np.concatenate(nodes_x)
         nodes_y = np.concatenate(nodes_y)
         nti = int(nt/nt_save)
+        t_i = np.linspace(0,timesteps.max(),nti)
         nd = V0.dofmap.index_map.size_global
         b = np.zeros((nti,nd))
         N = np.zeros((nti,nd))
         qx = np.zeros((nti,nd))
         qy = np.zeros((nti,nd))
         store = np.zeros((nti,nd))
-        t_i = np.linspace(0,timesteps.max(),nti)
-        np.save('./'+resultsname+'/t.npy',t_i)
-        np.save('./'+resultsname+'/nodes_x.npy',nodes_x)
-        np.save('./'+resultsname+'/nodes_y.npy',nodes_y)
-
-        j = 0
+        np.save(resultsname+'/t.npy',t_i)
+        np.save(resultsname+'/nodes_x.npy',nodes_x)
+        np.save(resultsname+'/nodes_y.npy',nodes_y)
+        with open(resultsname+"/model_info.txt", "w") as file:
+                file.write(model_setup['setup_name'])
+        # copy setup file into results directory to for plotting/post-processing
+        # and to keep record of input 
+        shutil.copy(parent_dir+'/setups/{}.py'.format(model_setup['setup_name']), resultsname+'/{}.py'.format(model_setup['setup_name']))
+        j = 0 # index for saving results at nt_save time intervals
 
     V = mixed_space(domain)
     sol_n = Function(V)
@@ -172,7 +195,6 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,N_bdry,Outflo
     solver = solve_pde(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,N_bdry,OutflowBoundary,dt)
 
     # # time-stepping loop
-    j = 0
     for i in range(nt):
 
         if rank == 0:
@@ -227,11 +249,11 @@ def solve(resultsname,domain,initial,timesteps,z_b,z_s,q_in,inputs,N_bdry,Outflo
                 qy[j,:] = np.concatenate(qy__)
                 store[j,:] = np.concatenate(storage__)
 
-                np.save('./'+resultsname+'/b.npy',b)
-                np.save('./'+resultsname+'/N.npy',N)
-                np.save('./'+resultsname+'/qx.npy',qx)
-                np.save('./'+resultsname+'/qy.npy',qy)
-                np.save('./'+resultsname+'/storage.npy',store)
+                np.save(resultsname+'/b.npy',b)
+                np.save(resultsname+'/N.npy',N)
+                np.save(resultsname+'/qx.npy',qx)
+                np.save(resultsname+'/qy.npy',qy)
+                np.save(resultsname+'/storage.npy',store)
                 j += 1
 
         # set solution at previous time step
