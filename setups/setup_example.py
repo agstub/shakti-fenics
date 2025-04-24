@@ -1,13 +1,18 @@
 # this file sets the main model options like the spatial domain (horizontal map-plane), 
 # surface elevation, bed elevation, and meltwater inputs (inflow and distributed source)
 # see params.py where other model parameters are defined.
+import sys
+sys.path.insert(0, '../source')
+
 import numpy as np
 from dolfinx.mesh import create_rectangle, CellType
-from dolfinx.fem import Function, functionspace
+from dolfinx.fem import Expression, Function, functionspace
+from ufl import dot
 from params import rho_i,g
 from mpi4py import MPI
 from fem_space import mixed_space, vector_space
 from pathlib import Path
+from constitutive import PotentialGradient
 
 parent_dir = (Path(__file__).resolve()).parent.parent
 
@@ -15,7 +20,8 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
 # set results name for saving
-resultsname = '{}/results/example'.format(parent_dir)
+experiment_name = 'example'
+resultsname = f'{parent_dir}/results/{experiment_name}'
 
 # Define domain 
 nx,ny = 128,128
@@ -77,12 +83,19 @@ q_in = Function(V_q)
 q_in.sub(0).interpolate(lambda x:qx0+0*x[0])
 q_in.sub(1).interpolate(lambda x:qy0+0*x[0])
 
+# define storage function for example
+storage = Function(V0)
+grad_h = PotentialGradient(z_b,z_s)
+storage_expr = np.exp(1)**(-(150*dot(grad_h,grad_h)**(0.5))**8)
+storage.interpolate(Expression(storage_expr, V0.element.interpolation_points()))
+
 # define time stepping 
-days = 10
+days = 200
 nt_per_day = 24
 t_final = (days/365)*3.154e7
 timesteps = np.linspace(0,t_final,int(days*nt_per_day))
 
+# frequency for saving files
 nt_save = nt_per_day
 
 
