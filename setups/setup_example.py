@@ -12,7 +12,7 @@ from params import rho_i,g
 from mpi4py import MPI
 from fem_space import mixed_space, vector_space
 from pathlib import Path
-from constitutive import PotentialGradient
+from constitutive import BackgroundGradient
 
 parent_dir = (Path(__file__).resolve()).parent.parent
 
@@ -35,6 +35,9 @@ domain = create_rectangle(MPI.COMM_WORLD,[p0,p1], [nx, ny],cell_type=CellType.tr
 
 # define function space (piecewise linear scalar) for inputs
 V0 = functionspace(domain, ("CG", 1))
+
+# define function space for full solution
+V = mixed_space(domain)
 
 # define bed geometry
 bed = lambda x: 0.02*(x[0]+0.5*L) - 100*np.exp(1)**(-((x[0]-0.25*W)**2+x[1]**2)/(2e3**2)) 
@@ -63,7 +66,6 @@ def OutflowBoundary(x):
     return np.isclose(x[0],-L/2.0)
 
 # set initial conditions
-V = mixed_space(domain)
 initial = Function(V)
 initial.sub(1).interpolate(lambda x: N0 + 0*x[0])       # initial N
 initial.sub(2).sub(0).interpolate(lambda x:qx0+0*x[0])  # initial qx
@@ -87,8 +89,8 @@ q_in.sub(1).interpolate(lambda x:qy0+0*x[0])
 
 # define storage function for example
 storage = Function(V0)
-grad_h = PotentialGradient(z_b,z_s)
-storage_expr = np.exp(1)**(-(150*dot(grad_h,grad_h)**(0.5))**8)
+grad_h0 = BackgroundGradient(z_b,z_s)
+storage_expr = np.exp(1)**(-(150*dot(grad_h0,grad_h0)**(0.5))**8)
 storage.interpolate(Expression(storage_expr, V0.element.interpolation_points()))
 
 # define time stepping 

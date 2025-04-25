@@ -9,7 +9,7 @@ from dolfinx.mesh import locate_entities_boundary
 from ufl import dx,FacetNormal, TestFunctions, split, dot,grad,ds,inner
 from params import theta, rho_i, rho_w,g
 from constitutive import Melt,Closure,Head,WaterFlux,Reynolds
-from fem_space import mixed_space
+from fem_space import mixed_space, ghost_mask
 from dolfinx.log import set_log_level, LogLevel
 import sys
 import os
@@ -39,11 +39,11 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,storage,dt):
     n_ = FacetNormal(domain)
 
     # boundary inflow tinkering! notes:
-    head0 = Head(0*z_b,z_b,z_s)      # neglecting effective pressure at boundary
-    b0 = 0*z_b + 1e-2                # note: using b_n doesn't converge 
-    rey0 = Reynolds(q_n)             # can also just set to a constant, i.e. rey0=1e3
-    q_in  = WaterFlux(b0,head0,rey0) # approximate flux at boundary: should be small if we choose
-                                     # a drainage divide and N variations are small
+    # head0 = Head(0*z_b,z_b,z_s)      # neglecting effective pressure at boundary
+    # b0 = 0*z_b + 1e-2                # note: using b_n doesn't converge 
+    # rey0 = 1e3 #Reynolds(q_n)        # can also just set to a constant, i.e. rey0=1e3
+    # q_in  = 1e-12*WaterFlux(b0,head0,rey0) # approximate flux at boundary: should be small if we choose
+    #                                  # a drainage divide and N variations are small
 
     # define term for lake activity
     lake = storage*(1/(rho_w*g*dt))*(N-N_n)
@@ -55,13 +55,14 @@ def weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,storage,dt):
     F_N = -dot(WaterFlux(b,Head(N,z_b,z_s), Reynolds(q_n)),grad(N_))*dx + ((1/rho_i-1/rho_w)*Melt(q,Head(N,z_b,z_s)) - Closure(b,N)-lake-inputs)*N_*dx
     
     # inflow natural/Neumann BC on the water flux:
-    F_bdry = dot(q_in,n_)*N_*ds 
+    # NOTE: assumed zero here.... ?!?!
+    # F_bdry = dot(q_in,n_)*N_*ds 
     
     # weak form of water flux definitionL
     F_q = inner((q - WaterFlux(b,Head(N,z_b,z_s),Reynolds(q_n))),q_)*dx
 
     # sum all weak forms:
-    F = F_b + F_N + F_q + F_bdry
+    F = F_b + F_N + F_q #+ F_bdry
     return F
 
 def pde_solver(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,storage,N_bdry,OutflowBoundary,dt):
@@ -71,13 +72,13 @@ def pde_solver(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,storage,N_bdry,OutflowBoun
         bcs = get_bcs(V,domain,N_bdry,OutflowBoundary)
 
         # define weak form
-        F =  weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,storage,dt)
+        F =  weak_form(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,storage,dt)        
 
         # # set initial guess for Newton solver
         sol.sub(0).interpolate(sol_n.sub(0))
         sol.sub(1).interpolate(sol_n.sub(1))
         sol.sub(2).sub(0).interpolate(sol_n.sub(2).sub(0))
-        sol.sub(2).sub(1).interpolate(sol_n.sub(2).sub(1))
+        sol.sub(2).sub(1).interpolate(sol_n.sub(2).sub(1))        
 
         # Solve for sol = (b,N,q)
         problem = NonlinearProblem(F, sol, bcs=bcs)
@@ -124,6 +125,7 @@ def solve(model_setup):
     OutflowBoundary = model_setup['OutflowBoundary']
     storage = model_setup['storage']
     V0 = model_setup['V0']
+    V = model_setup['V']
     
     # set dolfinx log output to desired level
     set_log_level(LogLevel.WARNING)
@@ -140,13 +142,7 @@ def solve(model_setup):
 
     # create masks to handle ghost points to avoid saving 
     # duplicate dof's in parallel runs 
-    ghosts = V0.dofmap.index_map.ghosts
-    global_to_local = V0.dofmap.index_map.global_to_local
-    ghosts_local = global_to_local(ghosts)
-    size_local = V0.dofmap.index_map.size_local
-    num_ghosts = V0.dofmap.index_map.num_ghosts
-    mask = np.ones(size_local+num_ghosts,dtype=bool)
-    mask[ghosts_local] = False
+    mask = ghost_mask(V0)
     
     # save nodes so that in post-processing we can create a
     # parallel-to-serial mapping between dof's for plotting
@@ -184,7 +180,11 @@ def solve(model_setup):
         np.save(resultsname+'/nodes_x.npy',nodes_x)
         np.save(resultsname+'/nodes_y.npy',nodes_y)
         with open(resultsname+"/model_info.txt", "w") as file:
-                file.write(model_setup['setup_name'])
+                file.write(model_setup['setup_name']+'\n')
+                if 'lake_name' in model_setup:
+                    file.write(model_setup['lake_name'])
+                else:
+                    file.write('none')
         # copy setup file into results directory to for plotting/post-processing
         # and to keep record of input 
         shutil.copy(parent_dir+'/setups/{}.py'.format(model_setup['setup_name']), resultsname+'/{}.py'.format(model_setup['setup_name']))

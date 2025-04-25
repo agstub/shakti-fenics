@@ -28,7 +28,12 @@ def Closure(b,N):
     # viscous closure term [m/s]
     return A*b*N*abs(N)**(n-1)
 
-def PotentialGradient(z_b,z_s):
+def BackgroundGradient(z_b,z_s):
     # background hydraulic gradient [dimensionless]
     # assumes zero effective pressure (N) gradient
     return grad(Head(0*z_b,z_b,z_s))
+
+def BackgroundPotential(z_b,z_s):
+    # background hydraulic gradient [dimensionless]
+    # assumes zero effective pressure (N) gradient
+    return rho_w*g*Head(0*z_b,z_b,z_s)
