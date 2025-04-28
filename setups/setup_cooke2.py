@@ -17,6 +17,7 @@ from dolfinx.io import gmshio
 from netCDF4 import Dataset
 from scipy.interpolate import RegularGridInterpolator
 from load_lakes import gdf
+from shapely import Point
 
 parent_dir = (Path(__file__).resolve()).parent.parent
 
@@ -24,11 +25,13 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
 # set results name for saving
-experiment_name = 'cooke2'
+experiment_name = 'cooke2_store'
 resultsname = f'{parent_dir}/results/{experiment_name}'
 
 # Define domain 
 domain, cell_tags, facet_tags = gmshio.read_from_msh("../meshes/cooke2.msh", MPI.COMM_WORLD, gdim=2)
+
+# refine mesh
 if rank == 0:
     print('\nrefining mesh...\n')
 for i in range(1):
@@ -46,8 +49,9 @@ V = mixed_space(domain)
 # select lake from inventory and set geographic bounds
 lake_name = 'Cook_E2' 
 outline = gdf.loc[gdf['name']==lake_name]
-x0 = float(outline.centroid.x.iloc[0])*1e3
-y0 = float(outline.centroid.y.iloc[0])*1e3
+outline = outline.scale(xfact=1e3,yfact=1e3,origin=(0,0,0))
+x0 = float(outline.centroid.x.iloc[0])
+y0 = float(outline.centroid.y.iloc[0])
 
 # L0 is the half-width  of bounding box surrounding lake
 # mesh is contained within this box
@@ -104,19 +108,29 @@ h_interp = RegularGridInterpolator((x_sub, y_sub), h_sub, bounds_error=False, fi
 z_s = Function(V0) # dolfinx function for the surface elevation
 z_s.x.array[:] = h_interp( (domain.geometry.x[:,0],domain.geometry.x[:,1]) )
 
-H_mean = np.mean(z_s.x.array-z_b.x.array)
+H = z_s.x.array-z_b.x.array
+H_mean = 0 
+H__ = comm.gather(H,root=0)
+if rank == 0:
+    H__ = np.concatenate(H__)
+    H_mean = np.mean(H__)    
+comm.Barrier()    
+H_mean = comm.bcast(H_mean, root=0)
 
 # inputs and initial conditions
-q_dist = 0#2e-6    # distributed input  [m/s]
+q_dist = 0    # distributed input  [m/s]
 
 # define initial conditions
-b0 = 0.01
-qx0 = -5e-3
+b0 = 0.001
+qx0 = 0
 qy0 = 0
-N0 = 0.05*rho_i*g*H_mean
+N0 = 2e5 #0.001*rho_i*g*H_mean
 
 # boundary condition for N at outflow
 N_bdry = N0
+
+# define minimum gap height
+b_min = 1e-4
 
 # define outflow boundary based on minimum potenetial condition
 P_min, P_std = 0,0
@@ -156,14 +170,17 @@ inputs.interpolate(inputs_)
 # define water flux boundary condition (Neumann)
 V_q = vector_space(domain)
 q_in = Function(V_q)
-q_in.sub(0).interpolate(lambda x:qx0+0*x[0])
-q_in.sub(1).interpolate(lambda x:qy0+0*x[0])
+q_in.sub(0).interpolate(lambda x: qx0 + 0*x[0])
+q_in.sub(1).interpolate(lambda x: qy0 + 0*x[0])
 
-# define storage function (zero for now)
-storage = Function(V0)
+# define storage function
+lake_bdry = Function(V0)
+for j in range(lake_bdry.x.array.size):
+    point = Point(domain.geometry.x[j,0],domain.geometry.x[j,1])
+    lake_bdry.x.array[j] = outline.geometry.contains(point).iloc[0]
 
 # define time stepping 
-days = 125
+days = 800
 nt_per_day = 24
 t_final = (days/365)*3.154e7
 timesteps = np.linspace(0,t_final,int(days*nt_per_day))

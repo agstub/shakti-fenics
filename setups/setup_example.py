@@ -60,6 +60,9 @@ qy0 = 0
 # boundary condition for N at outflow
 N_bdry = N0
 
+# define minimum gap height
+b_min = 1e-5
+
 # define outflow boundary
 def OutflowBoundary(x):
     # Left boundary (inflow/outflow)
@@ -88,21 +91,16 @@ q_in.sub(0).interpolate(lambda x:qx0+0*x[0])
 q_in.sub(1).interpolate(lambda x:qy0+0*x[0])
 
 # define storage function for example
-storage = Function(V0)
+lake_bdry = Function(V0)
 grad_h0 = BackgroundGradient(z_b,z_s)
-storage_expr = np.exp(1)**(-(150*dot(grad_h0,grad_h0)**(0.5))**8)
-storage.interpolate(Expression(storage_expr, V0.element.interpolation_points()))
+lake_bdry_expr = np.exp(1)**(-(150*dot(grad_h0,grad_h0)**(0.5))**8)
+lake_bdry.interpolate(Expression(lake_bdry_expr, V0.element.interpolation_points()))
 
 # define time stepping 
-days = 200
+days = 325
 nt_per_day = 24
 t_final = (days/365)*3.154e7
 timesteps = np.linspace(0,t_final,int(days*nt_per_day))
 
 # frequency for saving files
 nt_save = nt_per_day
-
-
-
-
-

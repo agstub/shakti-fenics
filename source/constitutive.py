@@ -34,6 +34,6 @@ def BackgroundGradient(z_b,z_s):
     return grad(Head(0*z_b,z_b,z_s))
 
 def BackgroundPotential(z_b,z_s):
-    # background hydraulic gradient [dimensionless]
-    # assumes zero effective pressure (N) gradient
+    # background hydraulic potentially [dimensionless]
+    # assumes zero effective pressure (N) 
     return rho_w*g*Head(0*z_b,z_b,z_s)

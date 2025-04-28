@@ -1,10 +1,4 @@
-# all physical and numerical parameters are set here.
-import numpy as np
-
-# time integration:
-theta = 0.0      # time integration parameter:
-                 # 0 = Forward Euler, 0.5 = trapezoidal
-                 # 1 = Backward Euler
+# some physical and numerical parameters are set here.
 
 # physical parameters:
 g = 9.81        # gravitational acceleration [m/s^2]
