@@ -71,12 +71,13 @@ def pde_solver(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,N_bdry,lake_bdry,OutflowBo
         # Solve for sol = (b,N,q)
         problem = NonlinearProblem(F, sol, bcs=bcs)
         solver = NewtonSolver(MPI.COMM_WORLD, problem)
-        ksp = solver.krylov_solver
-        opts = PETSc.Options()
-        option_prefix = ksp.getOptionsPrefix()
-        opts[f"{option_prefix}ksp_type"] = "preonly" #preonly / cg?
-        opts[f"{option_prefix}pc_type"] = "ksp" # ksp ?
-        ksp.setFromOptions()
+        
+        # ksp = solver.krylov_solver
+        # opts = PETSc.Options()
+        # option_prefix = ksp.getOptionsPrefix()
+        # opts[f"{option_prefix}ksp_type"] = "preonly" #preonly / cg?
+        # opts[f"{option_prefix}pc_type"] = "ksp" # ksp ?
+        # ksp.setFromOptions()
 
         return solver
 
@@ -114,6 +115,7 @@ def solve(model_setup):
     lake_bdry = model_setup['lake_bdry']
     V0 = model_setup['V0']
     V = model_setup['V']
+    storage = model_setup['storage']
     
     # set dolfinx log output to desired level
     set_log_level(LogLevel.WARNING)
@@ -190,6 +192,11 @@ def solve(model_setup):
 
     # define solution at current timestep (sol)
     sol = Function(V)
+    
+    if storage == False:
+        # turn off storage term by setting lake boundary function to zero
+        # in the weak form if desired
+        lake_bdry = Function(V0)
     
     # define pde solver
     solver = pde_solver(V,domain,sol,sol_n,z_b,z_s,q_in,inputs,N_bdry,lake_bdry,OutflowBoundary,dt)

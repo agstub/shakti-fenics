@@ -96,6 +96,9 @@ grad_h0 = BackgroundGradient(z_b,z_s)
 lake_bdry_expr = np.exp(1)**(-(150*dot(grad_h0,grad_h0)**(0.5))**8)
 lake_bdry.interpolate(Expression(lake_bdry_expr, V0.element.interpolation_points()))
 
+# decide if lake is represented with a storage-type term
+storage = True
+
 # define time stepping 
 days = 325
 nt_per_day = 24

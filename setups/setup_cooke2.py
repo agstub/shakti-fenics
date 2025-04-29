@@ -130,7 +130,7 @@ N0 = 2e5 #0.001*rho_i*g*H_mean
 N_bdry = N0
 
 # define minimum gap height
-b_min = 1e-4
+b_min = 1e-5
 
 # define outflow boundary based on minimum potenetial condition
 P_min, P_std = 0,0
@@ -146,7 +146,6 @@ P_min = comm.bcast(P_min, root=0)
 P_std = comm.bcast(P_std, root=0)    
     
 potential_interp = lambda x,y: rho_i*g*h_interp((x,y)) + (rho_w-rho_i)*g*bed_interp((x,y))
-
 
 def OutflowBoundary(x):
     return np.less(np.abs(potential_interp(x[0],x[1])-P_min),0.5*P_std)
@@ -168,8 +167,8 @@ inputs_ = lambda x: q_dist + 0*x[0]
 inputs.interpolate(inputs_)
 
 # define water flux boundary condition (Neumann)
-V_q = vector_space(domain)
-q_in = Function(V_q)
+Vq = vector_space(domain)
+q_in = Function(Vq)
 q_in.sub(0).interpolate(lambda x: qx0 + 0*x[0])
 q_in.sub(1).interpolate(lambda x: qy0 + 0*x[0])
 
@@ -178,6 +177,9 @@ lake_bdry = Function(V0)
 for j in range(lake_bdry.x.array.size):
     point = Point(domain.geometry.x[j,0],domain.geometry.x[j,1])
     lake_bdry.x.array[j] = outline.geometry.contains(point).iloc[0]
+
+# decide if lake is represented with a storage-type term
+storage = True
 
 # define time stepping 
 days = 800
