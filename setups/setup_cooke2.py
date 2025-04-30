@@ -10,7 +10,7 @@ from dolfinx.fem import Expression, Function, functionspace
 from dolfinx.mesh import refine
 from params import rho_i, rho_w, g
 from mpi4py import MPI
-from fem_space import mixed_space, vector_space, ghost_mask
+from fem_space import mixed_space, ghost_mask
 from pathlib import Path
 from constitutive import BackgroundPotential
 from dolfinx.io import gmshio
@@ -24,19 +24,28 @@ parent_dir = (Path(__file__).resolve()).parent.parent
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
+setup_name = ''
+
+# select lake from inventory and set geographic bounds
+lake_name = 'Cook_E2' 
+outline = gdf.loc[gdf['name']==lake_name]
+outline = outline.scale(xfact=1e3,yfact=1e3,origin=(0,0,0))
+x0 = float(outline.centroid.x.iloc[0])
+y0 = float(outline.centroid.y.iloc[0])
+
 # set results name for saving
-experiment_name = 'cooke2_store'
+experiment_name = 'cooke2_long'
 resultsname = f'{parent_dir}/results/{experiment_name}'
 
 # Define domain 
-domain, cell_tags, facet_tags = gmshio.read_from_msh("../meshes/cooke2.msh", MPI.COMM_WORLD, gdim=2)
+domain, cell_tags, facet_tags = gmshio.read_from_msh("../meshes/"+lake_name+"_mesh.msh", MPI.COMM_WORLD, gdim=2)
 
-# refine mesh
-if rank == 0:
-    print('\nrefining mesh...\n')
-for i in range(1):
-    domain.topology.create_entities(1)
-    domain = refine(domain)
+# refine mesh if desired
+# if rank == 0:
+#     print('\nrefining mesh...\n')
+# for i in range(1):
+#     domain.topology.create_entities(1)
+#     domain = refine(domain)
 
 
 # define function space (piecewise linear scalar) for inputs
@@ -45,13 +54,6 @@ mask = ghost_mask(V0) # mask for ghost points
 
 # define function space for full solution
 V = mixed_space(domain)
-
-# select lake from inventory and set geographic bounds
-lake_name = 'Cook_E2' 
-outline = gdf.loc[gdf['name']==lake_name]
-outline = outline.scale(xfact=1e3,yfact=1e3,origin=(0,0,0))
-x0 = float(outline.centroid.x.iloc[0])
-y0 = float(outline.centroid.y.iloc[0])
 
 # L0 is the half-width  of bounding box surrounding lake
 # mesh is contained within this box
@@ -120,11 +122,30 @@ H_mean = comm.bcast(H_mean, root=0)
 # inputs and initial conditions
 q_dist = 0    # distributed input  [m/s]
 
+# Geoethermal heat flux
+# AQ1 GHF (Stal) 
+ds = Dataset('/Users/agstubbl/Desktop/GHF/aq1_01_20.nc')
+x = ds['X'][:].data
+y = ds['Y'][:].data
+ghf = ds['Q'][:].data
+ind_x = np.arange(0,np.size(x),1)
+ind_y = np.arange(0,np.size(y),1)
+x_sub = x[(x>=x_min)&(x<=x_max)]
+y_sub = y[(y>=y_min)&(y<=y_max)]
+inds_x = ind_x[(x>=x_min)&(x<=x_max)]
+inds_y = ind_y[(y>=y_min)&(y<=y_max)]
+nx = np.size(inds_x)
+ny = np.size(inds_y)
+inds_xy = np.ix_(inds_y,inds_x)
+ghf_sub = np.zeros((ny,nx))
+ghf_sub = ghf[inds_xy]
+G = ghf_sub.mean() # geothermal heat flux (W/m^2)
+
 # define initial conditions
 b0 = 0.001
 qx0 = 0
 qy0 = 0
-N0 = 2e5 #0.001*rho_i*g*H_mean
+N0 = 2e5 #
 
 # boundary condition for N at outflow
 N_bdry = N0
@@ -166,12 +187,6 @@ inputs = Function(V0)
 inputs_ = lambda x: q_dist + 0*x[0] 
 inputs.interpolate(inputs_)
 
-# define water flux boundary condition (Neumann)
-Vq = vector_space(domain)
-q_in = Function(Vq)
-q_in.sub(0).interpolate(lambda x: qx0 + 0*x[0])
-q_in.sub(1).interpolate(lambda x: qy0 + 0*x[0])
-
 # define storage function
 lake_bdry = Function(V0)
 for j in range(lake_bdry.x.array.size):
@@ -182,7 +197,7 @@ for j in range(lake_bdry.x.array.size):
 storage = True
 
 # define time stepping 
-days = 800
+days = 10*365
 nt_per_day = 24
 t_final = (days/365)*3.154e7
 timesteps = np.linspace(0,t_final,int(days*nt_per_day))

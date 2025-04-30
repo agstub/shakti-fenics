@@ -1,6 +1,6 @@
 # this file contains some constutitve relations for 
 # solving the hydrology problem
-from params import rho_i,rho_w,g,nu,omega,G,Lh,A,n
+from params import rho_i,rho_w,g,nu,omega,Lh,A,n
 from ufl import grad, dot
 
 def Head(N,z_b,z_s):
@@ -19,7 +19,7 @@ def Reynolds(q):
     # local Reynolds number [dimensionless]
     return dot(q,q)**0.5/nu
 
-def Melt(q,h):
+def Melt(q,h,G):
     # melting rate [kg/ (m^2 s)]
     p = G - rho_w*g*dot(q,grad(h))
     return p/Lh

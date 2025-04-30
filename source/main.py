@@ -14,10 +14,10 @@ setup_module = importlib.import_module(sys.argv[1])
 model_setup = {key: getattr(setup_module, key) for key in dir(setup_module) if not key.startswith('__')}
 
 # add model setup name to dict
-model_setup["setup_name"] = sys.argv[1]
+setup_module.setup_name = sys.argv[1]
 
 # solve the problem
 # results are saved in a 'results' directory
-solve(model_setup)
+solve(setup_module)
 
 

@@ -16,6 +16,8 @@ from constitutive import BackgroundGradient
 
 parent_dir = (Path(__file__).resolve()).parent.parent
 
+setup_name = ''
+
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
@@ -57,6 +59,9 @@ N0 = 0.5*rho_i*g*H
 qx0 = -1e-2
 qy0 = 0
 
+# set geothermal heat flux
+G = 0.05        
+
 # boundary condition for N at outflow
 N_bdry = N0
 
@@ -83,12 +88,6 @@ initial.sub(0).interpolate(b_temp)
 inputs = Function(V0)
 inputs_ = lambda x: q_dist + 0*x[0] 
 inputs.interpolate(inputs_)
-
-# define water flux boundary condition (Neumann)
-V_q = vector_space(domain)
-q_in = Function(V_q)
-q_in.sub(0).interpolate(lambda x:qx0+0*x[0])
-q_in.sub(1).interpolate(lambda x:qy0+0*x[0])
 
 # define storage function for example
 lake_bdry = Function(V0)
