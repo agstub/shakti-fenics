@@ -24,7 +24,7 @@ def get_bcs(md):
     bcs = [bc_outflow]
     return bcs
         
-def weak_form(md,sol,sol_n,lake_bdry,dt):
+def weak_form(md,sol,sol_n,melt_n,lake_bdry,dt):
     # define functions
     b,N,q = split(sol)             # solution
     b_,N_,q_ = TestFunctions(md.V)    # test functions
@@ -39,10 +39,10 @@ def weak_form(md,sol,sol_n,lake_bdry,dt):
     lake_storage = lake_bdry*(1/(rho_w*g*dt))*(N-N_n)
     
     # weak form for gap height evolution (db/dt) equation:
-    F_b = (b-b_n - dt*(Melt(q_n,head_n,md.G)/rho_i - Closure(b_n,N_n)))*b_*dx 
+    F_b = (b-b_n - dt*(Melt(q_n,head_n,md.G,b_n,melt_n)/rho_i - Closure(b_n,N_n)))*b_*dx 
 
     # weak form for water flux divergence div(q) equation:
-    F_N = -dot(water_flux,grad(N_))*dx + ((1/rho_i-1/rho_w)*Melt(q,head,md.G) - Closure(b,N)-lake_storage-md.inputs)*N_*dx
+    F_N = -dot(water_flux,grad(N_))*dx + ((1/rho_i-1/rho_w)*Melt(q,head,md.G,b_n,melt_n) - Closure(b,N)-lake_storage-md.inputs)*N_*dx
     
     # weak form of water flux definitionL
     F_q = inner(q - water_flux,q_)*dx
@@ -51,14 +51,14 @@ def weak_form(md,sol,sol_n,lake_bdry,dt):
     F = F_b + F_N + F_q 
     return F
 
-def pde_solver(md,sol,sol_n,lake_bdry,dt):
+def pde_solver(md,sol,sol_n,melt_n,lake_bdry,dt):
         # solves the hydrology problem for (b,N,q)
 
         # # Define boundary conditions 
         bcs = get_bcs(md)
 
         # define weak form
-        F =  weak_form(md,sol,sol_n,lake_bdry,dt)     
+        F =  weak_form(md,sol,sol_n,melt_n,lake_bdry,dt)     
 
         # # set initial guess for Newton solver
         sol.sub(0).interpolate(sol_n.sub(0))
@@ -161,6 +161,10 @@ def solve(md):
     # define solution at current timestep (sol)
     sol = Function(md.V)
     
+    # melt rate at previous time step for Warburton et al. (2024)
+    # melt rate formulation
+    melt_n = Function(md.V0)
+    
     if md.storage == False:
         # turn off storage term by setting lake boundary function to zero
         # in the weak form if desired
@@ -169,7 +173,7 @@ def solve(md):
         lake_bdry = md.lake_bdry
         
     # define pde solver
-    solver = pde_solver(md,sol,sol_n,lake_bdry,dt)
+    solver = pde_solver(md,sol,sol_n,melt_n,lake_bdry,dt)
 
     # time-stepping loop
     for i in range(nt):
@@ -231,5 +235,6 @@ def solve(md):
  
         # set solution at previous time step
         sol_n.x.array[:] = sol.x.array
-
+        melt_n_expr = Melt(sol_n.sub(2),Head(sol_n.sub(1),md.z_b,md.z_s),md.G,sol_n.sub(0),melt_n)
+        melt_n.interpolate(Expression(melt_n_expr, md.V0.element.interpolation_points()))
     return 

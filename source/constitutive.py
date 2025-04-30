@@ -1,7 +1,7 @@
 # this file contains some constutitve relations for 
 # solving the hydrology problem
 from params import rho_i,rho_w,g,nu,omega,Lh,A,n
-from ufl import grad, dot
+from ufl import grad, dot, div
 
 def Head(N,z_b,z_s):
     # hydraulic head [m] as a function of effective pressure N, 
@@ -19,10 +19,12 @@ def Reynolds(q):
     # local Reynolds number [dimensionless]
     return dot(q,q)**0.5/nu
 
-def Melt(q,h,G):
+def Melt(q,h,G,b_n,melt_n):
     # melting rate [kg/ (m^2 s)]
-    p = G - rho_w*g*dot(q,grad(h))
-    return p/Lh
+    # m_diff term is from Warburton et al. (2024) JGR: Earth Surface
+    m0 = (G - rho_w*g*dot(q,grad(h)))/Lh
+    m_diff = div(b_n*melt_n*grad(b_n)/(1+dot(grad(b_n),grad(b_n))))
+    return m0 + m_diff
 
 def Closure(b,N):
     # viscous closure term [m/s]
