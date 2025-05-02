@@ -34,19 +34,11 @@ x0 = float(outline.centroid.x.iloc[0])
 y0 = float(outline.centroid.y.iloc[0])
 
 # set results name for saving
-experiment_name = 'cooke2_long'
+experiment_name = 'cooke2_N340kpa_newmesh'
 resultsname = f'{parent_dir}/results/{experiment_name}'
 
 # Define domain 
-domain, cell_tags, facet_tags = gmshio.read_from_msh("../meshes/"+lake_name+"_mesh.msh", MPI.COMM_WORLD, gdim=2)
-
-# refine mesh if desired
-# if rank == 0:
-#     print('\nrefining mesh...\n')
-# for i in range(1):
-#     domain.topology.create_entities(1)
-#     domain = refine(domain)
-
+domain, cell_tags, facet_tags = gmshio.read_from_msh("../meshes/"+lake_name+"_mesh_alt.msh", MPI.COMM_WORLD, gdim=2)
 
 # define function space (piecewise linear scalar) for inputs
 V0 = functionspace(domain, ("CG", 1))
@@ -145,7 +137,7 @@ G = ghf_sub.mean() # geothermal heat flux (W/m^2)
 b0 = 0.001
 qx0 = 0
 qy0 = 0
-N0 = 2e5 #
+N0 = 3.4e5 
 
 # boundary condition for N at outflow
 N_bdry = N0
@@ -197,7 +189,7 @@ for j in range(lake_bdry.x.array.size):
 storage = True
 
 # define time stepping 
-days = 10*365
+days = 20*365
 nt_per_day = 24
 t_final = (days/365)*3.154e7
 timesteps = np.linspace(0,t_final,int(days*nt_per_day))
