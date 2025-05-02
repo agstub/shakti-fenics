@@ -235,6 +235,8 @@ def solve(md):
  
         # set solution at previous time step
         sol_n.x.array[:] = sol.x.array
+        
+        # update melt rate 
         melt_n_expr = Melt(sol_n.sub(2),Head(sol_n.sub(1),md.z_b,md.z_s),md.G,sol_n.sub(0),melt_n)
         melt_n.interpolate(Expression(melt_n_expr, md.V0.element.interpolation_points()))
     return 
