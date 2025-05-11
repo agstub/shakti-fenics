@@ -5,8 +5,8 @@ from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.nls.petsc import NewtonSolver
 from petsc4py import PETSc
 from mpi4py import MPI
-from dolfinx.mesh import locate_entities_boundary
-from ufl import dx, TestFunctions, split, dot,grad,inner
+from dolfinx.mesh import locate_entities_boundary, locate_entities, meshtags
+from ufl import dx, TestFunctions, split, dot,grad,inner, Measure
 from params import rho_i, rho_w,g
 from constitutive import Melt,Closure,Head,WaterFlux,Reynolds
 from fem_space import ghost_mask
@@ -24,7 +24,7 @@ def get_bcs(md):
     bcs = [bc_outflow]
     return bcs
         
-def weak_form(md,sol,sol_n,melt_n,lake_bdry,dt):
+def weak_form(md,sol,sol_n,melt_n,lake_bdry,dt,ds):
     # define functions
     b,N,q = split(sol)             # solution
     b_,N_,q_ = TestFunctions(md.V)    # test functions
@@ -56,9 +56,22 @@ def pde_solver(md,sol,sol_n,melt_n,lake_bdry,dt):
 
         # # Define boundary conditions 
         bcs = get_bcs(md)
-
+        
+        boundaries = [(1, md.OutflowBoundary)]
+        facet_indices, facet_markers = [], []
+        fdim = md.domain.topology.dim - 1
+        for (marker, locator) in boundaries:
+            facets = locate_entities(md.domain, fdim, locator)
+            facet_indices.append(facets)
+            facet_markers.append(np.full_like(facets, marker))
+        facet_indices = np.hstack(facet_indices).astype(np.int32)
+        facet_markers = np.hstack(facet_markers).astype(np.int32)
+        sorted_facets = np.argsort(facet_indices)
+        facet_tag = meshtags(md.domain, fdim, facet_indices[sorted_facets], facet_markers[sorted_facets])
+        ds = Measure('ds', domain=md.domain, subdomain_data=facet_tag)
+        
         # define weak form
-        F =  weak_form(md,sol,sol_n,melt_n,lake_bdry,dt)     
+        F =  weak_form(md,sol,sol_n,melt_n,lake_bdry,dt,ds)     
 
         # # set initial guess for Newton solver
         sol.sub(0).interpolate(sol_n.sub(0))
@@ -161,9 +174,14 @@ def solve(md):
     # define solution at current timestep (sol)
     sol = Function(md.V)
     
-    # melt rate at previous time step for Warburton et al. (2024)
-    # melt rate formulation
-    melt_n = Function(md.V0)
+    # create piecewise linear functions for saving solution
+    b_int = Function(md.V0)
+    N_int = Function(md.V0)
+    qx_int = Function(md.V0)
+    qy_int = Function(md.V0)
+    
+    # function used for bounding gap height below
+    b_bound = Function(md.V0)
     
     if md.storage == False:
         # turn off storage term by setting lake boundary function to zero
@@ -172,8 +190,15 @@ def solve(md):
     else:
         lake_bdry = md.lake_bdry
         
+    # melt rate at previous time step for Warburton et al. (2024)
+    # melt rate formulation
+    melt_n = Function(md.V0)
+        
     # define pde solver
     solver = pde_solver(md,sol,sol_n,melt_n,lake_bdry,dt)
+
+    # define expression for computing melt rate at previous time step
+    melt_n_expr = Expression(Melt(sol_n.sub(2),Head(sol_n.sub(1),md.z_b,md.z_s),md.G,sol_n.sub(0),melt_n),md.V0.element.interpolation_points())
 
     # time-stepping loop
     for i in range(nt):
@@ -193,21 +218,14 @@ def solve(md):
         if converged == True:
             # bound gap height below by small amount
             # this value influences the flood amplitude
-            b_temp = Function(md.V0)
-            b_temp.interpolate(Expression(sol.sub(0), md.V0.element.interpolation_points()))
-            b_temp.x.array[b_temp.x.array<md.b_min] = md.b_min
-            sol.sub(0).interpolate(b_temp)
+            b_bound.interpolate(Expression(sol.sub(0), md.V0.element.interpolation_points()))
+            b_bound.x.array[b_bound.x.array<md.b_min] = md.b_min
+            sol.sub(0).interpolate(b_bound)
         
         if converged == False:
             break
 
         if i % md.nt_save == 0:
-            # create piecewise linear functions for saving solution
-            b_int = Function(md.V0)
-            N_int = Function(md.V0)
-            qx_int = Function(md.V0)
-            qy_int = Function(md.V0)
-
             # interpolate solution onto the piecewise linear functions
             b_int.interpolate(Expression(sol.sub(0), md.V0.element.interpolation_points()))
             N_int.interpolate(Expression(sol.sub(1), md.V0.element.interpolation_points()))
@@ -235,8 +253,9 @@ def solve(md):
  
         # set solution at previous time step
         sol_n.x.array[:] = sol.x.array
+        sol_n.x.scatter_forward()
         
-        # update melt rate 
-        melt_n_expr = Melt(sol_n.sub(2),Head(sol_n.sub(1),md.z_b,md.z_s),md.G,sol_n.sub(0),melt_n)
-        melt_n.interpolate(Expression(melt_n_expr, md.V0.element.interpolation_points()))
+        # update melt rate at previous time step
+        melt_n.interpolate(melt_n_expr)        
+     
     return 
