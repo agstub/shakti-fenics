@@ -1,8 +1,6 @@
 # script for mapping dofs with parallel ordering to serial ordering
 # used for plotting the results
 import numpy as np
-# from dolfinx.fem import locate_dofs_topological
-# from dolfinx.mesh import locate_entities_boundary
 import matplotlib.pyplot as plt 
 
 def dofs_to_serial(nodes_parallel,nodes_serial):

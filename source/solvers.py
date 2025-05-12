@@ -5,11 +5,10 @@ from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.nls.petsc import NewtonSolver
 from petsc4py import PETSc
 from mpi4py import MPI
-from dolfinx.mesh import locate_entities_boundary, locate_entities, meshtags
-from ufl import dx, TestFunctions, split, dot,grad,inner, Measure
+from dolfinx.mesh import locate_entities_boundary
+from ufl import dx, TestFunctions, split, dot,grad,inner
 from params import rho_i, rho_w,g
 from constitutive import Melt,Closure,Head,WaterFlux,Reynolds
-from fem_space import ghost_mask
 from dolfinx.log import set_log_level, LogLevel
 import sys
 import os
@@ -24,10 +23,10 @@ def get_bcs(md):
     bcs = [bc_outflow]
     return bcs
         
-def weak_form(md,sol,sol_n,melt_n,lake_bdry,dt,ds):
+def weak_form(md,sol,sol_n,melt_n,lake_bdry,dt):
     # define functions
     b,N,q = split(sol)             # solution
-    b_,N_,q_ = TestFunctions(md.V)    # test functions
+    b_,N_,q_ = TestFunctions(md.V) # test functions
     b_n,N_n,q_n = split(sol_n)     # sol at previous timestep    
 
     Re = Reynolds(q_n)
@@ -57,21 +56,8 @@ def pde_solver(md,sol,sol_n,melt_n,lake_bdry,dt):
         # # Define boundary conditions 
         bcs = get_bcs(md)
         
-        boundaries = [(1, md.OutflowBoundary)]
-        facet_indices, facet_markers = [], []
-        fdim = md.domain.topology.dim - 1
-        for (marker, locator) in boundaries:
-            facets = locate_entities(md.domain, fdim, locator)
-            facet_indices.append(facets)
-            facet_markers.append(np.full_like(facets, marker))
-        facet_indices = np.hstack(facet_indices).astype(np.int32)
-        facet_markers = np.hstack(facet_markers).astype(np.int32)
-        sorted_facets = np.argsort(facet_indices)
-        facet_tag = meshtags(md.domain, fdim, facet_indices[sorted_facets], facet_markers[sorted_facets])
-        ds = Measure('ds', domain=md.domain, subdomain_data=facet_tag)
-        
         # define weak form
-        F =  weak_form(md,sol,sol_n,melt_n,lake_bdry,dt,ds)     
+        F =  weak_form(md,sol,sol_n,melt_n,lake_bdry,dt)     
 
         # # set initial guess for Newton solver
         sol.sub(0).interpolate(sol_n.sub(0))
@@ -117,7 +103,7 @@ def solve(md):
 
     # create masks to handle ghost points to avoid saving 
     # duplicate dof's in parallel runs 
-    mask = ghost_mask(md.V0)
+    mask = md.mask
     
     # save nodes so that in post-processing we can create a
     # parallel-to-serial mapping between dof's for plotting

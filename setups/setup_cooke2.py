@@ -7,7 +7,6 @@ sys.path.insert(0, '../scripts')
 
 import numpy as np
 from dolfinx.fem import Expression, Function, functionspace
-from dolfinx.mesh import refine
 from params import rho_i, rho_w, g
 from mpi4py import MPI
 from fem_space import mixed_space, ghost_mask
@@ -34,7 +33,8 @@ x0 = float(outline.centroid.x.iloc[0])
 y0 = float(outline.centroid.y.iloc[0])
 
 # set results name for saving
-experiment_name = 'cooke2_N340kpa_newmesh'
+N0 = 3.4e5 
+experiment_name = f'cooke2_{N0/1e3:d}kpa'
 resultsname = f'{parent_dir}/results/{experiment_name}'
 
 # Define domain 
@@ -75,10 +75,11 @@ bed_sub = bed_bm[inds_xy].T
 bed_interp = RegularGridInterpolator((xb_sub, yb_sub), bed_sub, bounds_error=False, fill_value=None)
 z_b = Function(V0) # dolfinx function for the bed elevation
 z_b.x.array[:] = bed_interp( (domain.geometry.x[:,0],domain.geometry.x[:,1]) )
+z_b.x.scatter_forward()
 
 # define surface elevation
 # load surface elevation, make interpolation, and interpolate onto mesh nodes
-ds = Dataset('/Users/agstubbl/Desktop/ICESat-2/ATL14_A4_0325_100m_004_05.nc'  )
+ds = Dataset('/Users/agstubbl/Desktop/ICESat-2/ATL14_A4_0325_100m_004_05.nc')
 
 h = ds['h'][:]               # elevation (m)
 x = ds['x'][:]               # x coordinate array (m)
@@ -101,15 +102,7 @@ h_sub = h[inds_xy].filled().T
 h_interp = RegularGridInterpolator((x_sub, y_sub), h_sub, bounds_error=False, fill_value=None)
 z_s = Function(V0) # dolfinx function for the surface elevation
 z_s.x.array[:] = h_interp( (domain.geometry.x[:,0],domain.geometry.x[:,1]) )
-
-H = z_s.x.array-z_b.x.array
-H_mean = 0 
-H__ = comm.gather(H,root=0)
-if rank == 0:
-    H__ = np.concatenate(H__)
-    H_mean = np.mean(H__)    
-comm.Barrier()    
-H_mean = comm.bcast(H_mean, root=0)
+z_s.x.scatter_forward()
 
 # inputs and initial conditions
 q_dist = 0    # distributed input  [m/s]
@@ -132,12 +125,18 @@ inds_xy = np.ix_(inds_y,inds_x)
 ghf_sub = np.zeros((ny,nx))
 ghf_sub = ghf[inds_xy]
 G = ghf_sub.mean() # geothermal heat flux (W/m^2)
+G_mean = 0 
+G__ = comm.gather(G,root=0)
+if rank == 0:
+    G_mean = np.mean(G__)    
+comm.Barrier()    
+G = comm.bcast(G_mean, root=0)
 
 # define initial conditions
 b0 = 0.001
 qx0 = 0
 qy0 = 0
-N0 = 3.4e5 
+N0 = N0 #defined above
 
 # boundary condition for N at outflow
 N_bdry = N0
@@ -184,12 +183,13 @@ lake_bdry = Function(V0)
 for j in range(lake_bdry.x.array.size):
     point = Point(domain.geometry.x[j,0],domain.geometry.x[j,1])
     lake_bdry.x.array[j] = outline.geometry.contains(point).iloc[0]
+lake_bdry.x.scatter_forward()
 
 # decide if lake is represented with a storage-type term
 storage = True
 
 # define time stepping 
-days = 20*365
+days = 10*365
 nt_per_day = 24
 t_final = (days/365)*3.154e7
 timesteps = np.linspace(0,t_final,int(days*nt_per_day))
