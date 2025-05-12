@@ -98,7 +98,7 @@ def solve(md):
     error_code = 0      # code for catching io errors
 
     nt = np.size(md.timesteps)
-    dt_ = np.abs(md.timesteps[1]-md.timesteps[0])
+    dt_ = 0.1*np.abs(md.timesteps[1]-md.timesteps[0])
     dt = Constant(md.domain, dt_)
 
     # create masks to handle ghost points to avoid saving 

@@ -34,7 +34,7 @@ y0 = float(outline.centroid.y.iloc[0])
 
 # set results name for saving
 N0 = 3.4e5 
-experiment_name = f'cooke2_{N0/1e3:d}kpa'
+experiment_name = f'cooke2_{int(N0/1e3):d}kpa'
 resultsname = f'{parent_dir}/results/{experiment_name}'
 
 # Define domain 
