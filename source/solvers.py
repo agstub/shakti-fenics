@@ -206,6 +206,7 @@ def solve(md):
             # this value influences the flood amplitude
             b_bound.interpolate(Expression(sol.sub(0), md.V0.element.interpolation_points()))
             b_bound.x.array[b_bound.x.array<md.b_min] = md.b_min
+            b_bound.x.scatter_forward()
             sol.sub(0).interpolate(b_bound)
         
         if converged == False:
