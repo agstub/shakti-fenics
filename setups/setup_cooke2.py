@@ -33,8 +33,8 @@ x0 = float(outline.centroid.x.iloc[0])
 y0 = float(outline.centroid.y.iloc[0])
 
 # set results name for saving
-N0 = 3.4e5 
-experiment_name = f'cooke2_{int(N0/1e3):d}kpa'
+N0 = 3.7e5 
+experiment_name = f'cooke2_{int(N0/1e3):d}kpa_penalty'
 resultsname = f'{parent_dir}/results/{experiment_name}'
 
 # Define domain 
@@ -77,6 +77,10 @@ z_b = Function(V0) # dolfinx function for the bed elevation
 z_b.x.array[:] = bed_interp( (domain.geometry.x[:,0],domain.geometry.x[:,1]) )
 z_b.x.scatter_forward()
 
+del bedmachine, x_bm, y_bm, H_bm, bed_bm, xb_sub, yb_sub, ind_x, ind_y, inds_x
+del inds_y, nx, ny, inds_xy, bed_sub
+comm.Barrier()  
+
 # define surface elevation
 # load surface elevation, make interpolation, and interpolate onto mesh nodes
 ds = Dataset('/Users/agstubbl/Desktop/ICESat-2/ATL14_A4_0325_100m_004_05.nc')
@@ -103,6 +107,9 @@ h_interp = RegularGridInterpolator((x_sub, y_sub), h_sub, bounds_error=False, fi
 z_s = Function(V0) # dolfinx function for the surface elevation
 z_s.x.array[:] = h_interp( (domain.geometry.x[:,0],domain.geometry.x[:,1]) )
 z_s.x.scatter_forward()
+
+del ds, h, x, y, ind_x, ind_y, x_sub, y_sub, inds_x, inds_y, nx, ny, inds_xy, h_sub
+comm.Barrier()  
 
 # inputs and initial conditions
 q_dist = 0    # distributed input  [m/s]
@@ -132,6 +139,9 @@ if rank == 0:
 comm.Barrier()    
 G = comm.bcast(G_mean, root=0)
 
+del ds, x, y, ghf, ind_x, ind_y, x_sub, y_sub, inds_x, inds_y, nx, ny, inds_xy, ghf_sub
+comm.Barrier()  
+
 # define initial conditions
 b0 = 0.001
 qx0 = 0
@@ -142,7 +152,7 @@ N0 = N0 #defined above
 N_bdry = N0
 
 # define minimum gap height
-b_min = 1e-5
+b_min = 1.0e-5
 
 # define outflow boundary based on minimum potenetial condition
 P_min, P_std = 0,0
@@ -161,6 +171,9 @@ potential_interp = lambda x,y: rho_i*g*h_interp((x,y)) + (rho_w-rho_i)*g*bed_int
 
 def OutflowBoundary(x):
     return np.less(np.abs(potential_interp(x[0],x[1])-P_min),0.5*P_std)
+
+# decide if outflow is allowed or not (default True)
+outflow = True
 
 # set initial conditions
 initial = Function(V)
@@ -187,6 +200,12 @@ lake_bdry.x.scatter_forward()
 
 # decide if lake is represented with a storage-type term
 storage = True
+
+# experimental: zero initial N over lake
+# N0_fcn = Function(V0)
+# N0_fcn.x.array[:] = N0*(1-lake_bdry.x.array) + 1e4*lake_bdry.x.array
+# N0_fcn.x.scatter_forward()
+# initial.sub(1).interpolate(N0_fcn)
 
 # define time stepping 
 days = 10*365
