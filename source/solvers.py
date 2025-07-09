@@ -17,10 +17,13 @@ from pathlib import Path
 
 def get_bcs(md):
     # assign Dirichlet boundary conditions on effective pressure
-    facets_outflow = locate_entities_boundary(md.domain, md.domain.topology.dim-1, md.OutflowBoundary)   
-    dofs_outflow = locate_dofs_topological(md.V.sub(1), md.domain.topology.dim-1, facets_outflow)
-    bc_outflow = dirichletbc(PETSc.ScalarType(md.N_bdry), dofs_outflow,md.V.sub(1))
-    bcs = [bc_outflow]
+    if md.outflow == False:
+        bcs = []
+    else:
+        facets_outflow = locate_entities_boundary(md.domain, md.domain.topology.dim-1, md.OutflowBoundary)   
+        dofs_outflow = locate_dofs_topological(md.V.sub(1), md.domain.topology.dim-1, facets_outflow)
+        bc_outflow = dirichletbc(PETSc.ScalarType(md.N_bdry), dofs_outflow,md.V.sub(1))
+        bcs = [bc_outflow]
     return bcs
         
 def weak_form(md,sol,sol_n,melt_n,lake_bdry,dt):
@@ -100,15 +103,11 @@ def solve(md):
     nt = np.size(md.timesteps)
     dt_ = 0.1*np.abs(md.timesteps[1]-md.timesteps[0])
     dt = Constant(md.domain, dt_)
-
-    # create masks to handle ghost points to avoid saving 
-    # duplicate dof's in parallel runs 
-    mask = md.mask
     
     # save nodes so that in post-processing we can create a
     # parallel-to-serial mapping between dof's for plotting
-    nodes_x = comm.gather(md.domain.geometry.x[:,0][mask],root=0)
-    nodes_y = comm.gather(md.domain.geometry.x[:,1][mask],root=0)
+    nodes_x = comm.gather(md.domain.geometry.x[:,0][md.mask],root=0)
+    nodes_y = comm.gather(md.domain.geometry.x[:,1][md.mask],root=0)
 
     comm.Barrier()
     # create arrays for saving solution
@@ -166,6 +165,12 @@ def solve(md):
     qx_int = Function(md.V0)
     qy_int = Function(md.V0)
     
+    # create dolfinx expressions for interpolating onto those^ functions
+    b_expr = Expression(sol.sub(0), md.V0.element.interpolation_points())
+    N_expr = Expression(sol.sub(1), md.V0.element.interpolation_points())
+    qx_expr = Expression(sol.sub(2).sub(0), md.V0.element.interpolation_points())
+    qy_expr = Expression(sol.sub(2).sub(1), md.V0.element.interpolation_points())
+    
     # function used for bounding gap height below
     b_bound = Function(md.V0)
     
@@ -204,7 +209,7 @@ def solve(md):
         if converged == True:
             # bound gap height below by small amount
             # this value influences the flood amplitude
-            b_bound.interpolate(Expression(sol.sub(0), md.V0.element.interpolation_points()))
+            b_bound.interpolate(b_expr)
             b_bound.x.array[b_bound.x.array<md.b_min] = md.b_min
             b_bound.x.scatter_forward()
             sol.sub(0).interpolate(b_bound)
@@ -214,16 +219,16 @@ def solve(md):
 
         if i % md.nt_save == 0:
             # interpolate solution onto the piecewise linear functions
-            b_int.interpolate(Expression(sol.sub(0), md.V0.element.interpolation_points()))
-            N_int.interpolate(Expression(sol.sub(1), md.V0.element.interpolation_points()))
-            qx_int.interpolate(Expression(sol.sub(2).sub(0), md.V0.element.interpolation_points()))
-            qy_int.interpolate(Expression(sol.sub(2).sub(1), md.V0.element.interpolation_points()))
+            b_int.interpolate(b_expr)
+            N_int.interpolate(N_expr)
+            qx_int.interpolate(qx_expr)
+            qy_int.interpolate(qy_expr)
 
             # mask out the ghost points and gather
-            b__ = comm.gather(b_int.x.array[mask],root=0)
-            N__ = comm.gather(N_int.x.array[mask],root=0)
-            qx__ = comm.gather(qx_int.x.array[mask],root=0)
-            qy__ = comm.gather(qy_int.x.array[mask],root=0)
+            b__ = comm.gather(b_int.x.array[md.mask],root=0)
+            N__ = comm.gather(N_int.x.array[md.mask],root=0)
+            qx__ = comm.gather(qx_int.x.array[md.mask],root=0)
+            qy__ = comm.gather(qy_int.x.array[md.mask],root=0)
 
             if rank == 0:
                 # save the dof's as numpy arrays
