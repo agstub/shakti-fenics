@@ -10,10 +10,7 @@ sys.path.insert(0, '../setups')
 # import model setup module from command line argument
 setup_module = importlib.import_module(sys.argv[1])
 
-# convert to dictionary
-model_setup = {key: getattr(setup_module, key) for key in dir(setup_module) if not key.startswith('__')}
-
-# add model setup name to dict
+# add model setup name to module
 setup_module.setup_name = sys.argv[1]
 
 # solve the problem
