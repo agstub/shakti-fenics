@@ -9,7 +9,7 @@ import numpy as np
 from dolfinx.fem import Expression, Function, functionspace
 from params import rho_i, rho_w, g
 from mpi4py import MPI
-from fem_space import mixed_space, ghost_mask
+from fem_space import mixed_space, ghost_mask, vector_space
 from pathlib import Path
 from constitutive import BackgroundPotential
 from dolfinx.io import gmshio
@@ -34,7 +34,7 @@ y0 = float(outline.centroid.y.iloc[0])
 
 # set results name for saving
 N0 = 3.7e5 
-experiment_name = f'cooke2_{int(N0/1e3):d}kpa_penalty'
+experiment_name = f'cooke2_{int(N0/1e3):d}kpa'
 resultsname = f'{parent_dir}/results/{experiment_name}'
 
 # Define domain 
@@ -181,6 +181,9 @@ initial.sub(1).interpolate(lambda x:N0+0*x[0])          # initial N
 initial.sub(2).sub(0).interpolate(lambda x:qx0+0*x[0])  # initial qx
 initial.sub(2).sub(1).interpolate(lambda x:qy0+0*x[0])  # initial qy
 
+
+Vq = vector_space(domain)
+
 # initialize gap height b=b0 plus some random noise
 b_temp = Function(V0)
 b_temp.x.array[:] = b0 + np.random.normal(scale=0.005,size=np.size(b_temp.x.array[:])) 
@@ -201,11 +204,7 @@ lake_bdry.x.scatter_forward()
 # decide if lake is represented with a storage-type term
 storage = True
 
-# experimental: zero initial N over lake
-# N0_fcn = Function(V0)
-# N0_fcn.x.array[:] = N0*(1-lake_bdry.x.array) + 1e4*lake_bdry.x.array
-# N0_fcn.x.scatter_forward()
-# initial.sub(1).interpolate(N0_fcn)
+stagger_solve = True
 
 # define time stepping 
 days = 10*365
@@ -215,3 +214,4 @@ timesteps = np.linspace(0,t_final,int(days*nt_per_day))
 
 # frequency for saving files
 nt_save = nt_per_day
+nt_check = 50*nt_save # checkpoint save for real-time 

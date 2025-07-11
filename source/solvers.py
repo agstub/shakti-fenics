@@ -6,7 +6,7 @@ from dolfinx.nls.petsc import NewtonSolver
 from petsc4py import PETSc
 from mpi4py import MPI
 from dolfinx.mesh import locate_entities_boundary
-from ufl import dx, TestFunctions, split, dot,grad,inner
+from ufl import dx, TestFunction, dot,grad
 from params import rho_i, rho_w,g
 from constitutive import Melt,Closure,Head,WaterFlux,Reynolds
 from dolfinx.log import set_log_level, LogLevel
@@ -21,58 +21,39 @@ def get_bcs(md):
         bcs = []
     else:
         facets_outflow = locate_entities_boundary(md.domain, md.domain.topology.dim-1, md.OutflowBoundary)   
-        dofs_outflow = locate_dofs_topological(md.V.sub(1), md.domain.topology.dim-1, facets_outflow)
-        bc_outflow = dirichletbc(PETSc.ScalarType(md.N_bdry), dofs_outflow,md.V.sub(1))
+        dofs_outflow = locate_dofs_topological(md.V0, md.domain.topology.dim-1, facets_outflow)
+        bc_outflow = dirichletbc(PETSc.ScalarType(md.N_bdry), dofs_outflow,md.V0)
         bcs = [bc_outflow]
     return bcs
-        
-def weak_form(md,sol,sol_n,melt_n,lake_bdry,dt):
-    # define functions
-    b,N,q = split(sol)             # solution
-    b_,N_,q_ = TestFunctions(md.V) # test functions
-    b_n,N_n,q_n = split(sol_n)     # sol at previous timestep    
 
-    Re = Reynolds(q_n)
-    head_n = Head(N_n,md.z_b,md.z_s)
-    head = Head(N,md.z_b,md.z_s)
-    water_flux = WaterFlux(b,Head(N,md.z_b,md.z_s), Re)
-
-    # lake term is analogous to englacial storage
-    lake_storage = lake_bdry*(1/(rho_w*g*dt))*(N-N_n)
-    
-    # weak form for gap height evolution (db/dt) equation:
-    F_b = (b-b_n - dt*(Melt(q_n,head_n,md.G,b_n,melt_n)/rho_i - Closure(b_n,N_n)))*b_*dx 
-
-    # weak form for water flux divergence div(q) equation:
-    F_N = -dot(water_flux,grad(N_))*dx + ((1/rho_i-1/rho_w)*Melt(q,head,md.G,b_n,melt_n) - Closure(b,N)-lake_storage-md.inputs)*N_*dx
-    
-    # weak form of water flux definitionL
-    F_q = inner(q - water_flux,q_)*dx
-
-    # sum all weak form components to obtain residual:
-    F = F_b + F_N + F_q 
-    return F
-
-def pde_solver(md,sol,sol_n,melt_n,lake_bdry,dt):
-        # solves the hydrology problem for (b,N,q)
+def pde_solver(md,N,N_n,b,q,melt_n,lake_bdry,dt):
+        # solves the hydrology problem for N
 
         # # Define boundary conditions 
         bcs = get_bcs(md)
         
         # define weak form
-        F =  weak_form(md,sol,sol_n,melt_n,lake_bdry,dt)     
+        N_ = TestFunction(md.V0) # test function
+
+        Re = Reynolds(q)
+        head = Head(N,md.z_b,md.z_s)
+        water_flux = WaterFlux(b,head, Re)
+
+        # lake term is analogous to englacial storage
+        lake_storage = lake_bdry*(1/(rho_w*g*dt))*(N-N_n)
+
+        # weak form for water flux divergence div(q) equation:
+        F = -dot(water_flux,grad(N_))*dx + ((1/rho_i-1/rho_w)*Melt(q,head,md.G,b,melt_n) - Closure(b,N)-lake_storage-md.inputs)*N_*dx
 
         # # set initial guess for Newton solver
-        sol.sub(0).interpolate(sol_n.sub(0))
-        sol.sub(1).interpolate(sol_n.sub(1))
-        sol.sub(2).sub(0).interpolate(sol_n.sub(2).sub(0))
-        sol.sub(2).sub(1).interpolate(sol_n.sub(2).sub(1))        
-
-        # Solve for sol = (b,N,q)
-        problem = NonlinearProblem(F, sol, bcs=bcs)
+        N.interpolate(N_n)
+  
+        # Solve for N
+        problem = NonlinearProblem(F, N, bcs=bcs)
         solver = NewtonSolver(MPI.COMM_WORLD, problem)
 
         return solver
+    
 
 def solve(md):
     # solve the hydrology problem given:
@@ -134,10 +115,10 @@ def solve(md):
         nd = md.V0.dofmap.index_map.size_global
         
         # arrays for solution dof's at each timestep
-        b = np.zeros((nti,nd))
-        N = np.zeros((nti,nd))
-        qx = np.zeros((nti,nd))
-        qy = np.zeros((nti,nd))
+        b_arr = np.zeros((nti,nd))
+        N_arr = np.zeros((nti,nd))
+        qx_arr = np.zeros((nti,nd))
+        qy_arr = np.zeros((nti,nd))
         
         np.save(md.resultsname+'/t.npy',t_i)
         np.save(md.resultsname+'/nodes_x.npy',nodes_x)
@@ -148,31 +129,24 @@ def solve(md):
         shutil.copy(parent_dir+'/setups/{}.py'.format(md.setup_name), md.resultsname+'/{}.py'.format(md.setup_name))
         j = 0 # index for saving results at nt_save time intervals
 
-    # define solution function at previous timestep (sol_n) 
-    # and set initial conditions
-    sol_n = Function(md.V)
-    sol_n.sub(0).interpolate(md.initial.sub(0))
-    sol_n.sub(1).interpolate(md.initial.sub(1))
-    sol_n.sub(2).sub(0).interpolate(md.initial.sub(2).sub(0))
-    sol_n.sub(2).sub(1).interpolate(md.initial.sub(2).sub(1))
-
-    # define solution at current timestep (sol)
-    sol = Function(md.V)
+    # define solution function and set initial conditions
+    N = Function(md.V0)
+    q = Function(md.Vq)
+    b = Function(md.V0)
+    qx = Function(md.V0)
+    qy = Function(md.V0)
+    N_n = Function(md.V0) # N at previous timestep
     
-    # create piecewise linear functions for saving solution
-    b_int = Function(md.V0)
-    N_int = Function(md.V0)
-    qx_int = Function(md.V0)
-    qy_int = Function(md.V0)
+    # interpolate initial conditions
+    b.interpolate(md.initial.sub(0)) 
+    N_n.interpolate(md.initial.sub(1))
+    q.sub(0).interpolate(md.initial.sub(2).sub(0))
+    q.sub(1).interpolate(md.initial.sub(2).sub(1))    
     
-    # create dolfinx expressions for interpolating onto those^ functions
-    b_expr = Expression(sol.sub(0), md.V0.element.interpolation_points())
-    N_expr = Expression(sol.sub(1), md.V0.element.interpolation_points())
-    qx_expr = Expression(sol.sub(2).sub(0), md.V0.element.interpolation_points())
-    qy_expr = Expression(sol.sub(2).sub(1), md.V0.element.interpolation_points())
-    
-    # function used for bounding gap height below
-    b_bound = Function(md.V0)
+    # create dolfinx expressions for interpolating water flux
+    q_expr = Expression(WaterFlux(b,Head(N,md.z_b,md.z_s), Reynolds(q)), md.Vq.element.interpolation_points())  
+    qx_expr = Expression(q.sub(0), md.V0.element.interpolation_points())
+    qy_expr = Expression(q.sub(1), md.V0.element.interpolation_points())
     
     if md.storage == False:
         # turn off storage term by setting lake boundary function to zero
@@ -184,17 +158,20 @@ def solve(md):
     # melt rate at previous time step for Warburton et al. (2024)
     # melt rate formulation
     melt_n = Function(md.V0)
-        
-    # define pde solver
-    solver = pde_solver(md,sol,sol_n,melt_n,lake_bdry,dt)
+            
+    # define pde solver for N
+    solver = pde_solver(md,N,N_n,b,q,melt_n,lake_bdry,dt)
+    
+    # interpolate b using expression:
+    b_expr = Expression(b + dt*(Melt(q,Head(N,md.z_b,md.z_s),md.G,b,melt_n)/rho_i - Closure(b,N)),md.V0.element.interpolation_points())
 
     # define expression for computing melt rate at previous time step
-    melt_n_expr = Expression(Melt(sol_n.sub(2),Head(sol_n.sub(1),md.z_b,md.z_s),md.G,sol_n.sub(0),melt_n),md.V0.element.interpolation_points())
+    melt_n_expr = Expression(Melt(q,Head(N,md.z_b,md.z_s),md.G,b,melt_n),md.V0.element.interpolation_points())
 
     # time-stepping loop
     for i in range(nt):
 
-        if rank == 0:
+        if rank == 0 and (i+1)%10==0:
             print('time step '+str(i+1)+' out of '+str(nt)+' \r',end='')
             sys.stdout.flush()
 
@@ -202,52 +179,66 @@ def solve(md):
             dt_ = np.abs(md.timesteps[i]-md.timesteps[i-1])
             dt.value = dt_
     
-        # solve the hydrology problem for sol = (b,N,q)
-        niter, converged = solver.solve(sol)
+        # solve for effective pressure (N)
+        niter, converged = solver.solve(N)
         assert (converged)
-        
-        if converged == True:
-            # bound gap height below by small amount
-            # this value influences the flood amplitude
-            b_bound.interpolate(b_expr)
-            b_bound.x.array[b_bound.x.array<md.b_min] = md.b_min
-            b_bound.x.scatter_forward()
-            sol.sub(0).interpolate(b_bound)
         
         if converged == False:
             break
-
-        if i % md.nt_save == 0:
-            # interpolate solution onto the piecewise linear functions
-            b_int.interpolate(b_expr)
-            N_int.interpolate(N_expr)
-            qx_int.interpolate(qx_expr)
-            qy_int.interpolate(qy_expr)
-
-            # mask out the ghost points and gather
-            b__ = comm.gather(b_int.x.array[md.mask],root=0)
-            N__ = comm.gather(N_int.x.array[md.mask],root=0)
-            qx__ = comm.gather(qx_int.x.array[md.mask],root=0)
-            qy__ = comm.gather(qy_int.x.array[md.mask],root=0)
-
-            if rank == 0:
-                # save the dof's as numpy arrays
-                b[j,:] = np.concatenate(b__)
-                N[j,:] = np.concatenate(N__)
-                qx[j,:] = np.concatenate(qx__)
-                qy[j,:] = np.concatenate(qy__)
-
-                np.save(md.resultsname+'/b.npy',b)
-                np.save(md.resultsname+'/N.npy',N)
-                np.save(md.resultsname+'/qx.npy',qx)
-                np.save(md.resultsname+'/qy.npy',qy)
-                j += 1
- 
-        # set solution at previous time step
-        sol_n.x.array[:] = sol.x.array
-        sol_n.x.scatter_forward()
+        
+        # update water flux (q) via interpolation 
+        q.interpolate(q_expr)
         
         # update melt rate at previous time step
         melt_n.interpolate(melt_n_expr)        
      
+        # solve b pde
+        # niter, converged = solver_b.solve(b)
+        # assert (converged)
+        
+        # update gap height (b) via interpolation
+        b.interpolate(b_expr)
+        
+        # bound gap height below by small amount
+        # note: this value influences flood amplitudes
+        b.x.array[b.x.array<md.b_min] = md.b_min
+        b.x.scatter_forward()
+            
+        if i % md.nt_save == 0:
+            # interpolate water flux components for saving
+            qx.interpolate(qx_expr)
+            qy.interpolate(qy_expr)
+            
+            # mask out the ghost points and gather
+            b__ = comm.gather(b.x.array[md.mask],root=0)
+            N__ = comm.gather(N.x.array[md.mask],root=0)
+            qx__ = comm.gather(qx.x.array[md.mask],root=0)
+            qy__ = comm.gather(qy.x.array[md.mask],root=0)
+
+            if rank == 0:
+                # save the dof's as numpy arrays
+                b_arr[j,:] = np.concatenate(b__)
+                N_arr[j,:] = np.concatenate(N__)
+                qx_arr[j,:] = np.concatenate(qx__)
+                qy_arr[j,:] = np.concatenate(qy__)
+                
+                if i % md.nt_check == 0:
+                    np.save(md.resultsname+f'/b.npy',b_arr)
+                    np.save(md.resultsname+f'/N.npy',N_arr)
+                    np.save(md.resultsname+f'/qx.npy',qx_arr)
+                    np.save(md.resultsname+f'/qy.npy',qy_arr)
+
+                j += 1
+ 
+        # set solution at previous time step
+        N_n.x.array[:] = N.x.array
+        N_n.x.scatter_forward()
+    
+    # post-processing: put time-slices into big arrays
+    if rank == 0:
+        np.save(md.resultsname+f'/b.npy',b_arr)
+        np.save(md.resultsname+f'/N.npy',N_arr)
+        np.save(md.resultsname+f'/qx.npy',qx_arr)
+        np.save(md.resultsname+f'/qy.npy',qy_arr)
+        
     return 
