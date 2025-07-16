@@ -39,7 +39,7 @@ experiment_name = f'cooke2_{int(N0/1e3):d}kpa'
 resultsname = f'{parent_dir}/results/{experiment_name}'
 
 # Define domain 
-domain, cell_tags, facet_tags = gmshio.read_from_msh("../meshes/"+lake_name+"_mesh_alt.msh", MPI.COMM_WORLD, gdim=2)
+domain, cell_tags, facet_tags = gmshio.read_from_msh("../meshes/"+lake_name+"_mesh_alt.msh", comm, gdim=2)
 
 # define function space (piecewise linear scalar) for inputs
 V = functionspace(domain, ("CG", 1))
