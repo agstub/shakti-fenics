@@ -10,9 +10,6 @@ sys.path.insert(0, '../setups')
 # import model setup module from command line argument
 md = importlib.import_module(sys.argv[1])
 
-# add model setup name to module
-md.setup_name = sys.argv[1]
-
-# solve the problem
-# results are saved in a 'results' directory
+# solve the problem, results are saved in a 'results' directory
+# visualize the solution with solution-plots.ipynb notebook
 solve(md)
