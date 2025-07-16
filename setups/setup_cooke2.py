@@ -3,13 +3,12 @@
 # see params.py where other model parameters are defined.
 import sys
 sys.path.insert(0, '../source')
-sys.path.insert(0, '../scripts')
 
 import numpy as np
 from dolfinx.fem import Expression, Function, functionspace
 from params import rho_i, rho_w, g
 from mpi4py import MPI
-from fem_space import mixed_space, ghost_mask, vector_space
+from dof_helpers import ghost_mask
 from pathlib import Path
 from constitutive import BackgroundPotential
 from dolfinx.io import gmshio
@@ -17,6 +16,7 @@ from netCDF4 import Dataset
 from scipy.interpolate import RegularGridInterpolator
 from load_lakes import gdf
 from shapely import Point
+from basix.ufl import element
 
 parent_dir = (Path(__file__).resolve()).parent.parent
 
@@ -41,11 +41,12 @@ resultsname = f'{parent_dir}/results/{experiment_name}'
 domain, cell_tags, facet_tags = gmshio.read_from_msh("../meshes/"+lake_name+"_mesh_alt.msh", MPI.COMM_WORLD, gdim=2)
 
 # define function space (piecewise linear scalar) for inputs
-V0 = functionspace(domain, ("CG", 1))
-mask = ghost_mask(V0) # mask for ghost points
+V = functionspace(domain, ("CG", 1))
+mask = ghost_mask(V) # mask for ghost points
 
-# define function space for full solution
-V = mixed_space(domain)
+# function space for water flux
+P1_vec = element('P',domain.basix_cell(),1,shape=(domain.geometry.dim,))
+V_flux = functionspace(domain,P1_vec) 
 
 # L0 is the half-width  of bounding box surrounding lake
 # mesh is contained within this box
@@ -63,52 +64,34 @@ H_bm = np.flipud(bedmachine['thickness'][:].data.astype(np.float64))
 bed_bm = np.flipud(bedmachine['bed'][:].data.astype(np.float64))
 xb_sub = x_bm[(x_bm>=x_min)&(x_bm<=x_max)]
 yb_sub = y_bm[(y_bm>=y_min)&(y_bm<=y_max)]
-ind_x = np.arange(0,np.size(x_bm),1)
-ind_y = np.arange(0,np.size(y_bm),1)
-inds_x = ind_x[(x_bm>=x_min)&(x_bm<=x_max)]
-inds_y = ind_y[(y_bm>=y_min)&(y_bm<=y_max)]
-nx = np.size(inds_x)
-ny = np.size(inds_y)
-inds_xy = np.ix_(inds_y,inds_x)
-bed_sub = np.zeros((ny,nx))
-bed_sub = bed_bm[inds_xy].T
+bed_sub = bed_bm[np.ix_(np.arange(0,np.size(y_bm),1)[(y_bm>=y_min)&(y_bm<=y_max)],np.arange(0,np.size(x_bm),1)[(x_bm>=x_min)&(x_bm<=x_max)])].T
 bed_interp = RegularGridInterpolator((xb_sub, yb_sub), bed_sub, bounds_error=False, fill_value=None)
-z_b = Function(V0) # dolfinx function for the bed elevation
+z_b = Function(V) # dolfinx function for the bed elevation
 z_b.x.array[:] = bed_interp( (domain.geometry.x[:,0],domain.geometry.x[:,1]) )
 z_b.x.scatter_forward()
-
-del bedmachine, x_bm, y_bm, H_bm, bed_bm, xb_sub, yb_sub, ind_x, ind_y, inds_x
-del inds_y, nx, ny, inds_xy, bed_sub
+del bedmachine, x_bm, y_bm, H_bm, bed_bm, xb_sub, yb_sub, bed_sub
 comm.Barrier()  
 
 # define surface elevation
 # load surface elevation, make interpolation, and interpolate onto mesh nodes
-ds = Dataset('/Users/agstubbl/Desktop/ICESat-2/ATL14_A4_0325_100m_004_05.nc')
+atl14 = Dataset('/Users/agstubbl/Desktop/ICESat-2/ATL14_A4_0325_100m_004_05.nc')
 
-h = ds['h'][:]               # elevation (m)
-x = ds['x'][:]               # x coordinate array (m)
-y = ds['y'][:]               # y coordinate array (m)
+h = atl14['h'][:]               # elevation (m)
+x = atl14['x'][:]               # x coordinate array (m)
+y = atl14['y'][:]               # y coordinate array (m)
 
 # extract the data that is inside the bounding box
-ind_x = np.arange(0,np.size(x),1)
-ind_y = np.arange(0,np.size(y),1)
 x_sub = x[(x>=x_min)&(x<=x_max)].filled()
 y_sub = y[(y>=y_min)&(y<=y_max)].filled()
-inds_x = ind_x[(x>=x_min)&(x<=x_max)]
-inds_y = ind_y[(y>=y_min)&(y<=y_max)]
-nx = np.size(inds_x)
-ny = np.size(inds_y)
+inds_x = np.arange(0,np.size(x),1)[(x>=x_min)&(x<=x_max)]
+inds_y = np.arange(0,np.size(y),1)[(y>=y_min)&(y<=y_max)]
 inds_xy = np.ix_(inds_y,inds_x)
-h_sub = np.zeros((ny,nx))
-
-# put elevation change maps into 3D array with time being the first index
 h_sub = h[inds_xy].filled().T 
 h_interp = RegularGridInterpolator((x_sub, y_sub), h_sub, bounds_error=False, fill_value=None)
-z_s = Function(V0) # dolfinx function for the surface elevation
+z_s = Function(V) # dolfinx function for the surface elevation
 z_s.x.array[:] = h_interp( (domain.geometry.x[:,0],domain.geometry.x[:,1]) )
 z_s.x.scatter_forward()
-
-del ds, h, x, y, ind_x, ind_y, x_sub, y_sub, inds_x, inds_y, nx, ny, inds_xy, h_sub
+del atl14, h, x, y, x_sub, y_sub, inds_x, inds_y, inds_xy, h_sub
 comm.Barrier()  
 
 # inputs and initial conditions
@@ -116,10 +99,10 @@ q_dist = 0    # distributed input  [m/s]
 
 # Geoethermal heat flux
 # AQ1 GHF (Stal) 
-ds = Dataset('/Users/agstubbl/Desktop/GHF/aq1_01_20.nc')
-x = ds['X'][:].data
-y = ds['Y'][:].data
-ghf = ds['Q'][:].data
+aq1 = Dataset('/Users/agstubbl/Desktop/GHF/aq1_01_20.nc')
+x = aq1['X'][:].data
+y = aq1['Y'][:].data
+ghf = aq1['Q'][:].data
 ind_x = np.arange(0,np.size(x),1)
 ind_y = np.arange(0,np.size(y),1)
 x_sub = x[(x>=x_min)&(x<=x_max)]
@@ -139,7 +122,7 @@ if rank == 0:
 comm.Barrier()    
 G = comm.bcast(G_mean, root=0)
 
-del ds, x, y, ghf, ind_x, ind_y, x_sub, y_sub, inds_x, inds_y, nx, ny, inds_xy, ghf_sub
+del aq1, x, y, ghf, ind_x, ind_y, x_sub, y_sub, inds_x, inds_y, nx, ny, inds_xy, ghf_sub
 comm.Barrier()  
 
 # define initial conditions
@@ -156,8 +139,8 @@ b_min = 1.0e-5
 
 # define outflow boundary based on minimum potenetial condition
 P_min, P_std = 0,0
-potential = Function(V0)
-potential.interpolate(Expression(BackgroundPotential(z_b,z_s), V0.element.interpolation_points()))
+potential = Function(V)
+potential.interpolate(Expression(BackgroundPotential(z_b,z_s), V.element.interpolation_points()))
 potential__ = comm.gather(potential.x.array[mask],root=0)
 
 if rank == 0:
@@ -175,27 +158,24 @@ def OutflowBoundary(x):
 # decide if outflow is allowed or not (default True)
 outflow = True
 
-# set initial conditions
-initial = Function(V)
-initial.sub(1).interpolate(lambda x:N0+0*x[0])          # initial N
-initial.sub(2).sub(0).interpolate(lambda x:qx0+0*x[0])  # initial qx
-initial.sub(2).sub(1).interpolate(lambda x:qy0+0*x[0])  # initial qy
+# define initial conditions
+b_init = Function(V)
+N_init = Function(V)
+q_init = Function(V_flux)
 
-
-Vq = vector_space(domain)
+N_init.interpolate(lambda x:N0+0*x[0])          # initial N
+q_init.sub(0).interpolate(lambda x:qx0+0*x[0])  # initial qx
+q_init.sub(0).interpolate(lambda x:qy0+0*x[0])  # initial qy
 
 # initialize gap height b=b0 plus some random noise
-b_temp = Function(V0)
-b_temp.x.array[:] = b0 + np.random.normal(scale=0.005,size=np.size(b_temp.x.array[:])) 
-initial.sub(0).interpolate(b_temp)
+b_init.x.array[:] = b0 + np.random.normal(scale=0.005,size=np.size(b_init.x.array[:])) 
 
 # define moulin source term - none defined in this example
-inputs = Function(V0)
-inputs_ = lambda x: q_dist + 0*x[0] 
-inputs.interpolate(inputs_)
+inputs = Function(V)
+inputs.interpolate(lambda x: q_dist + 0*x[0] )
 
 # define storage function
-lake_bdry = Function(V0)
+lake_bdry = Function(V)
 for j in range(lake_bdry.x.array.size):
     point = Point(domain.geometry.x[j,0],domain.geometry.x[j,1])
     lake_bdry.x.array[j] = outline.geometry.contains(point).iloc[0]

@@ -8,13 +8,11 @@ import importlib
 sys.path.insert(0, '../setups')
 
 # import model setup module from command line argument
-setup_module = importlib.import_module(sys.argv[1])
+md = importlib.import_module(sys.argv[1])
 
 # add model setup name to module
-setup_module.setup_name = sys.argv[1]
+md.setup_name = sys.argv[1]
 
 # solve the problem
 # results are saved in a 'results' directory
-solve(setup_module)
-
-
+solve(md)
