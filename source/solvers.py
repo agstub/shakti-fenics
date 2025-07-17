@@ -83,10 +83,10 @@ def solve(md):
     
     # save nodes so that in post-processing we can create a
     # parallel-to-serial mapping between dof's for plotting
-    nodes_x = md.comm.gather(md.domain.geometry.x[:,0][md.mask],root=0)
-    nodes_y = md.comm.gather(md.domain.geometry.x[:,1][md.mask],root=0)
+    nodes_x = md.comm.gather(md.x[md.mask],root=0)
+    nodes_y = md.comm.gather(md.y[md.mask],root=0)
 
-    md.comm.Barrier()
+    md.comm.barrier()
     # create arrays for saving solution
     if md.rank == 0:
         try:
@@ -95,7 +95,7 @@ def solve(md):
             print(f"Error: Directory '{md.results_name}' already exists.\nChoose another name in setup file or delete this directory.")  
             error_code = 1
    
-    md.comm.Barrier()    
+    md.comm.barrier()    
     error_code = md.comm.bcast(error_code, root=0)
     
     if error_code == 1:

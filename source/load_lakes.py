@@ -72,5 +72,5 @@ for lake in h5f.keys():
 # make a pandas dataframe with all the necessary info
 df = pd.DataFrame(zip(h5f.keys(), outline_geometries, areas, citations),
                   columns=['name', 'geometry', 'area (km^2)', 'cite'])
-gdf = gpd.GeoDataFrame(df, crs=crs_xy, geometry=outline_geometries)
+lake_inventory = gpd.GeoDataFrame(df, crs=crs_xy, geometry=outline_geometries)
 h5f.close()

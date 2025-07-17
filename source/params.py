@@ -1,4 +1,4 @@
-# some physical and numerical parameters are set here.
+# constant physical parameters are set here
 
 # physical parameters:
 g = 9.81        # gravitational acceleration [m/s^2]

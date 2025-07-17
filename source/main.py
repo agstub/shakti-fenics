@@ -2,7 +2,6 @@
 # See setup.py for exanples of model setup options like bed and surface geometry,
 # meltwater inputs, mesh creation, etc...
 
-from solvers import solve
 import sys
 import importlib
 from mpi4py import MPI
@@ -19,4 +18,4 @@ md = setup.initialize(comm)
 
 # solve the problem, results are saved in a 'results' directory
 # visualize the solution with solution-plots.ipynb notebook
-solve(md)
+md.solve()
