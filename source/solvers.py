@@ -16,7 +16,7 @@ from pathlib import Path
 
 def get_bcs(md):
     # assign Dirichlet boundary conditions on effective pressure
-    if md.outflow == False:
+    if md.outflow_on == False:
         bcs = []
     else:
         facets_outflow = locate_entities_boundary(md.domain, md.domain.topology.dim-1, md.OutflowBoundary)   
@@ -66,7 +66,7 @@ def solve(md):
 
     # *see {repo root}/setup/setup_example.py for an example of how to set these
 
-    # The solution is saved in a directory {repo root}/results/resultsname:
+    # The solution is saved in a directory {repo root}/results/results_name:
     # b = subglacial gap height (m)
     # qx = subglacial water flux [x component] (m^2/s)
     # qy = subglacial water flux [y component] (m^2/s)
@@ -74,9 +74,6 @@ def solve(md):
     
     # set dolfinx log output to desired level
     set_log_level(LogLevel.WARNING)
-
-    # comm = MPI.COMM_WORLD
-    # rank = comm.Get_rank()
     
     error_code = 0      # code for catching io errors
 
@@ -93,9 +90,9 @@ def solve(md):
     # create arrays for saving solution
     if md.rank == 0:
         try:
-            os.makedirs(md.resultsname,exist_ok=False)
+            os.makedirs(md.results_name,exist_ok=False)
         except FileExistsError:
-            print(f"Error: Directory '{md.resultsname}' already exists.\nChoose another name in setup file or delete this directory.")  
+            print(f"Error: Directory '{md.results_name}' already exists.\nChoose another name in setup file or delete this directory.")  
             error_code = 1
    
     md.comm.Barrier()    
@@ -119,13 +116,13 @@ def solve(md):
         qx_arr = np.zeros((nti,nd))
         qy_arr = np.zeros((nti,nd))
         
-        np.save(md.resultsname+'/t.npy',t_i)
-        np.save(md.resultsname+'/nodes_x.npy',nodes_x)
-        np.save(md.resultsname+'/nodes_y.npy',nodes_y)
+        np.save(md.results_name+'/t.npy',t_i)
+        np.save(md.results_name+'/nodes_x.npy',nodes_x)
+        np.save(md.results_name+'/nodes_y.npy',nodes_y)
 
         # copy setup file into results directory to for plotting/post-processing
         # and to keep record of input 
-        shutil.copy(parent_dir+'/setups/{}.py'.format(md.setup_name), md.resultsname+'/{}.py'.format(md.setup_name))
+        shutil.copy(parent_dir+'/setups/{}.py'.format(md.setup_name), md.results_name+'/{}.py'.format(md.setup_name))
         j = 0 # index for saving results at nt_save time intervals
 
     # define solution function and set initial conditions
@@ -147,7 +144,7 @@ def solve(md):
     qx_expr = Expression(q.sub(0), md.V.element.interpolation_points())
     qy_expr = Expression(q.sub(1), md.V.element.interpolation_points())
     
-    if md.storage == False:
+    if md.storage_on == False:
         # turn off storage term by setting lake boundary function to zero
         # in the weak form if desired
         lake_bdry = Function(md.V)
@@ -171,7 +168,7 @@ def solve(md):
     for i in range(nt):
 
         if md.rank == 0 and (i+1)%10==0:
-            print('time step '+str(i+1)+' out of '+str(nt)+' \r',end='')
+            print(f"Time step {i+1} of {nt} completed ({(i+1)/nt*100:.1f}%)", end='\r')
             sys.stdout.flush()
 
         if i>0:
@@ -218,10 +215,10 @@ def solve(md):
                 qy_arr[j,:] = np.concatenate(qy__)
                 
                 if i % md.nt_check == 0:
-                    np.save(md.resultsname+f'/b.npy',b_arr)
-                    np.save(md.resultsname+f'/N.npy',N_arr)
-                    np.save(md.resultsname+f'/qx.npy',qx_arr)
-                    np.save(md.resultsname+f'/qy.npy',qy_arr)
+                    np.save(md.results_name+f'/b.npy',b_arr)
+                    np.save(md.results_name+f'/N.npy',N_arr)
+                    np.save(md.results_name+f'/qx.npy',qx_arr)
+                    np.save(md.results_name+f'/qy.npy',qy_arr)
 
                 j += 1
  
@@ -231,9 +228,9 @@ def solve(md):
     
     # post-processing: put time-slices into big arrays
     if md.rank == 0:
-        np.save(md.resultsname+f'/b.npy',b_arr)
-        np.save(md.resultsname+f'/N.npy',N_arr)
-        np.save(md.resultsname+f'/qx.npy',qx_arr)
-        np.save(md.resultsname+f'/qy.npy',qy_arr)
+        np.save(md.results_name+f'/b.npy',b_arr)
+        np.save(md.results_name+f'/N.npy',N_arr)
+        np.save(md.results_name+f'/qx.npy',qx_arr)
+        np.save(md.results_name+f'/qy.npy',qy_arr)
     
     return 
