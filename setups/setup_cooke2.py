@@ -89,7 +89,7 @@ def initialize(comm):
     md.inputs.interpolate(lambda x:  0*x[0] )
 
     # define time stepping 
-    days = 20#*365
+    days = 10*365
     nt_per_day = 24
     t_final = (days/365)*3.154e7
     md.timesteps = np.linspace(0,t_final,int(days*nt_per_day))
