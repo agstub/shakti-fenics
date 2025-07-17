@@ -96,5 +96,5 @@ def initialize(comm):
 
     # frequency for saving files
     md.nt_save = nt_per_day
-    md.nt_check = 10*md.nt_save # checkpoint save for real-time 
+    md.nt_check = 50*md.nt_save # checkpoint save for real-time 
     return md
