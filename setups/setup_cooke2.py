@@ -40,7 +40,7 @@ def initialize(comm):
     bed = np.flipud(bedmachine['bed'][:].data.astype(np.float64))
     x = bedmachine['x'][:].data.astype(np.float64)
     y = np.flipud(bedmachine['y'][:].data.astype(np.float64))
-    h_interp = md.interp_data("z_b", x, y, bed)
+    bed_interp = md.interp_data("z_b", x, y, bed)
     del bedmachine, x, y, bed
     comm.barrier()  
 
@@ -49,7 +49,7 @@ def initialize(comm):
     h = atl14['h'][:].filled()               # elevation (m)
     x = atl14['x'][:].filled()               # x coordinate array (m)
     y = atl14['y'][:].filled()               # y coordinate array (m)
-    bed_interp = md.interp_data("z_s", x, y, h)
+    h_interp = md.interp_data("z_s", x, y, h)
     del atl14, h, x, y
     comm.barrier()  
 
@@ -68,17 +68,17 @@ def initialize(comm):
     md.q_init.sub(0).interpolate(lambda x: 0*x[0]) 
     md.q_init.sub(1).interpolate(lambda x: 0*x[0])  
 
-    # define outflow boundary based on minimum potenetial condition
+    # # define outflow boundary based on minimum potenetial condition
     potential_interp = lambda x,y: rho_i*g*h_interp((x,y)) + (rho_w-rho_i)*g*bed_interp((x,y))
     P_min, P_std = 0,0
-    potential__ = comm.gather(potential_interp(md.x[md.mask],md.y[md.mask]),root=0)
+    potential__ = comm.gather(potential_interp(md.x,md.y),root=0)
     if md.rank == 0:
         potential__ = np.concatenate(potential__)
         P_min, P_std = np.min(potential__), np.std(potential__)
     comm.barrier()    
     P_min, P_std = comm.bcast(P_min, root=0), comm.bcast(P_std, root=0)
     md.OutflowBoundary = lambda x: np.less(np.abs(potential_interp(x[0],x[1])-P_min),0.5*P_std)
-
+    
     # decide if outflow is allowed or not (default True)
     md.outflow_on = True
 
@@ -89,12 +89,12 @@ def initialize(comm):
     md.inputs.interpolate(lambda x:  0*x[0] )
 
     # define time stepping 
-    days = 10*365
+    days = 20#*365
     nt_per_day = 24
     t_final = (days/365)*3.154e7
     md.timesteps = np.linspace(0,t_final,int(days*nt_per_day))
 
     # frequency for saving files
     md.nt_save = nt_per_day
-    md.nt_check = 50*md.nt_save # checkpoint save for real-time 
+    md.nt_check = 10*md.nt_save # checkpoint save for real-time 
     return md
