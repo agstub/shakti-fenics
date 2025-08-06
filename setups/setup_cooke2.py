@@ -15,7 +15,7 @@ def initialize(comm):
     # select lake from inventory and set geographic bounds
     lake_name = 'Cook_E2' 
     
-    # Define mesh 
+    # Define mesh (see create_mesh.ipynb notebook for example)
     domain, *_ = gmshio.read_from_msh("../meshes/"+lake_name+"_mesh.msh", comm, gdim=2)
     
     # initialize model object

@@ -37,20 +37,20 @@ class model_setup:
                        self.y.min()-buffer,self.y.max()+buffer]
         
         # BC options
-        self.outflow_on = True
-        self.storage_on = True
+        self.outflow_on = True                  # allow outflow from domain
+        self.storage_on = True                  # turn on water storage in lake
 
         # Physical input functions
-        self.z_b = Function(self.V)
-        self.z_s = Function(self.V)
-        self.G = Function(self.V)
-        self.inputs = Function(self.V)
-        self.b_init = Function(self.V)
-        self.N_init = Function(self.V)
-        self.q_init = Function(self.V_flux)
-        self.lake_bdry = Function(self.V)
-        self.N_bdry = 0.0
-        self.b_min = 1.0e-5
+        self.z_b = Function(self.V)             # bed elevation [m]
+        self.z_s = Function(self.V)             # surface elevation [m]
+        self.G = Function(self.V)               # geothermal heat flux [W/m^2]
+        self.inputs = Function(self.V)          # water inputs to bed (moulins) [m/s]
+        self.b_init = Function(self.V)          # initial gap height [m]
+        self.N_init = Function(self.V)          # initial effective pressure [Pa]
+        self.q_init = Function(self.V_flux)     # initial water flux [m^2/s]
+        self.lake_bdry = Function(self.V)       # lake boundary function (1=within lake, 0=outside lake)
+        self.N_bdry = 0.0                       # effective pressure condition at outflow boundary [Pa]
+        self.b_min = 1.0e-5                     # minimum gap height [m]     
 
         # lake outline GeoDataFrame for defining boundary function
         self.outline = None

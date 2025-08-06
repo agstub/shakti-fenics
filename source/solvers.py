@@ -25,7 +25,7 @@ def get_bcs(md):
         bcs = [bc_outflow]
     return bcs
 
-def pde_solver(md,N,N_n,b,q,melt_n,lake_bdry,dt):
+def pde_solver(md,N,N_n,b,q,melt_n,storage,dt):
         # solves the hydrology problem for N
 
         # # Define boundary conditions 
@@ -39,7 +39,7 @@ def pde_solver(md,N,N_n,b,q,melt_n,lake_bdry,dt):
         water_flux = WaterFlux(b,head, Re)
 
         # lake term is analogous to englacial storage
-        lake_storage = lake_bdry*(1/(rho_w*g*dt))*(N-N_n)
+        lake_storage = storage*(1/(rho_w*g*dt))*(N-N_n)
 
         # weak form for water flux divergence div(q) equation:
         F = -dot(water_flux,grad(N_))*dx + ((1/rho_i-1/rho_w)*Melt(q,head,md.G,b,melt_n) - Closure(b,N)-lake_storage-md.inputs)*N_*dx
@@ -144,20 +144,19 @@ def solve(md):
     qx_expr = Expression(q.sub(0), md.V.element.interpolation_points())
     qy_expr = Expression(q.sub(1), md.V.element.interpolation_points())
     
-    # NOTE: just put this part in the model setup class...
     if md.storage_on == False:
         # turn off storage term by setting lake boundary function to zero
         # in the weak form if desired
-        lake_bdry = Function(md.V)
+        storage = Function(md.V)
     else:
-        lake_bdry = md.lake_bdry
+        storage = md.lake_bdry
         
     # melt rate at previous time step for Warburton et al. (2024)
     # melt rate formulation
     melt_n = Function(md.V)
             
     # define pde solver for N
-    solver = pde_solver(md,N,N_n,b,q,melt_n,lake_bdry,dt)
+    solver = pde_solver(md,N,N_n,b,q,melt_n,storage,dt)
     
     # interpolate b using expression:
     b_expr = Expression(b + dt*(Melt(q,Head(N,md.z_b,md.z_s),md.G,b,melt_n)/rho_i - Closure(b,N)),md.V.element.interpolation_points())
