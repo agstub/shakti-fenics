@@ -99,8 +99,8 @@ class model_setup:
         if self.rank == 0:
             x__ = np.unique(np.concatenate(x__))
             y__ = np.unique(np.concatenate(y__))
-            x_bfr = 100*np.max(np.diff(x__)) 
-            y_bfr= 100*np.max(np.diff(y__)) 
+            x_bfr = 10*np.max(np.diff(x__)) 
+            y_bfr= 10*np.max(np.diff(y__)) 
         self.comm.barrier()    
         x_bfr, y_bfr = self.comm.bcast(x_bfr, root=0), self.comm.bcast(y_bfr, root=0)
         return np.max([x_bfr, y_bfr])

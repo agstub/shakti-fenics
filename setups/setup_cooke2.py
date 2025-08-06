@@ -15,7 +15,7 @@ def initialize(comm):
     # select lake from inventory and set geographic bounds
     lake_name = 'Cook_E2' 
     
-    # Define domain 
+    # Define mesh 
     domain, *_ = gmshio.read_from_msh("../meshes/"+lake_name+"_mesh.msh", comm, gdim=2)
     
     # initialize model object
@@ -68,7 +68,7 @@ def initialize(comm):
     md.q_init.sub(0).interpolate(lambda x: 0*x[0]) 
     md.q_init.sub(1).interpolate(lambda x: 0*x[0])  
 
-    # # define outflow boundary based on minimum potenetial condition
+    # # define outflow boundary based on minimum potenetial condition (best checked by plotting in notebook)
     potential_interp = lambda x,y: rho_i*g*h_interp((x,y)) + (rho_w-rho_i)*g*bed_interp((x,y))
     P_min, P_std = 0,0
     potential__ = comm.gather(potential_interp(md.x,md.y),root=0)

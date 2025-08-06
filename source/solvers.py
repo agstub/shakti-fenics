@@ -144,6 +144,7 @@ def solve(md):
     qx_expr = Expression(q.sub(0), md.V.element.interpolation_points())
     qy_expr = Expression(q.sub(1), md.V.element.interpolation_points())
     
+    # NOTE: just put this part in the model setup class...
     if md.storage_on == False:
         # turn off storage term by setting lake boundary function to zero
         # in the weak form if desired
@@ -215,6 +216,8 @@ def solve(md):
                 qy_arr[j,:] = np.concatenate(qy__)
                 
                 if i % md.nt_check == 0:
+                # checkpoint saves: e.g., to not wait until
+                # the end of simulation for plotting
                     np.save(md.results_name+f'/b.npy',b_arr)
                     np.save(md.results_name+f'/N.npy',N_arr)
                     np.save(md.results_name+f'/qx.npy',qx_arr)
