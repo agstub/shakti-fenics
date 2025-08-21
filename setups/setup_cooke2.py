@@ -27,8 +27,6 @@ def initialize(comm):
     
     # set results name for saving
     md.N_bdry = 3.7e5 # boundary condition function for N at outflow
-    parent_dir = (Path(__file__).resolve()).parent.parent
-    md.results_name = f'{parent_dir}/results/{md.lake_name}_{int(md.N_bdry/1e3):d}kpa'
 
     # lake outline from geodataframe, for defining lake boundary
     md.outline = lake_inventory.loc[lake_inventory['name']==md.lake_name]
@@ -83,7 +81,7 @@ def initialize(comm):
     md.outflow_on = True
 
     # decide if lake is represented with a storage-type term (default True)
-    md.storage_on = True
+    md.storage_on = False
 
     # define moulin source term - zero (none) in this example
     md.inputs.interpolate(lambda x:  0*x[0] )
@@ -97,4 +95,8 @@ def initialize(comm):
     # frequency for saving files
     md.nt_save = nt_per_day
     md.nt_check = 50*md.nt_save # checkpoint save for real-time 
+    
+    # results directory name
+    md.results_name = f'{(Path(__file__).resolve()).parent.parent}/results/{md.lake_name}_{int(md.N_bdry/1e3):d}kpa_nostorage'
+    
     return md

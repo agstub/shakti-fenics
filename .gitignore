@@ -1,3 +1,10 @@
 __pycache__
 .DS_Store
 results/
+zold/
+*.mov
+TODO
+ode.ipynb
+*.msh
+*.tif
+*.png
