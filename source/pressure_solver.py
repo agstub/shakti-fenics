@@ -1,0 +1,47 @@
+# This file contains the functions needed for solving the effective pressure PDE
+from dolfinx.fem import dirichletbc,locate_dofs_topological
+from dolfinx.fem.petsc import NonlinearProblem
+from dolfinx.nls.petsc import NewtonSolver
+from petsc4py import PETSc
+from dolfinx.mesh import locate_entities_boundary
+from ufl import dx, TestFunction, dot,grad
+from constitutive import Melt,Closure,Head,WaterFlux,Reynolds
+
+def get_bcs(md):
+    # assign Dirichlet boundary conditions on effective pressure
+    if md.outflow_on == False:
+        bcs = []
+    else:
+        facets_outflow = locate_entities_boundary(md.domain, md.domain.topology.dim-1, md.OutflowBoundary)   
+        dofs_outflow = locate_dofs_topological(md.V, md.domain.topology.dim-1, facets_outflow)
+        bc_outflow = dirichletbc(PETSc.ScalarType(md.N_bdry), dofs_outflow,md.V)
+        bcs = [bc_outflow]
+    return bcs
+
+def pressure_solver(md):
+        # solves the hydrology problem for N
+
+        # # Define boundary conditions 
+        bcs = get_bcs(md)
+        
+        # define weak form
+        N_ = TestFunction(md.V) # test function
+
+        Re = Reynolds(md.q)
+        head = Head(md.N,md.z_b,md.z_s)
+        water_flux = WaterFlux(md.b,head, Re)
+
+        # lake term is analogous to englacial storage
+        lake_storage = md.storage*(1/(md.rho_w*md.g*md.dt))*(md.N-md.N_n)
+
+        # weak form for water flux divergence div(q) equation:
+        F = -dot(water_flux,grad(N_))*dx + ((1/md.rho_i-1/md.rho_w)*Melt(md.q,head,md.G,md.b,md.melt_n) - Closure(md.b,md.N)-lake_storage-md.inputs)*N_*dx
+
+        # # set initial guess for Newton solver
+        md.N.interpolate(md.N_n)
+  
+        # Solve for N
+        problem = NonlinearProblem(F, md.N, bcs=bcs)
+        solver = NewtonSolver(md.comm, problem)
+
+        return solver

@@ -1,9 +1,14 @@
-from dolfinx.fem import Function, functionspace
+from dolfinx.fem import Expression, Function, Constant, functionspace
+from dolfinx.mesh import locate_entities_boundary, exterior_facet_indices
 from basix.ufl import element
 from shapely import Point
 from scipy.interpolate import RegularGridInterpolator
+from constitutive import Melt,Closure,Head,WaterFlux,Reynolds
 import numpy as np
-from solvers import solve
+from solver import solve
+from output import output_setup,output_process,output_save
+from pressure_solver import pressure_solver
+import params
 
 def get_nested_attr(obj, attr_path):
     for attr in attr_path.split('.'):
@@ -28,7 +33,9 @@ class model_setup:
         self.y = domain.geometry.x[:,1]
         self.V = functionspace(domain, ("CG", 1))
         self.V_flux = functionspace(domain,element('P',domain.basix_cell(),1,shape=(domain.geometry.dim,))) 
-        self.mask = self.ghost_mask(self.V) 
+        self.mask_dofs = self.ghost_mask(self.V.dofmap.index_map) 
+        self.mask_cells = self.ghost_mask(self.domain.topology.index_map(self.domain.topology.dim))
+        
         self.OutflowBoundary = None
         
         # create bounding box for interpolating data
@@ -52,6 +59,26 @@ class model_setup:
         self.N_bdry = 0.0                       # effective pressure condition at outflow boundary [Pa]
         self.b_min = 1.0e-5                     # minimum gap height [m]     
 
+        # define functions
+        # define solution function and set initial conditions
+        self.N = Function(self.V)
+        self.q = Function(self.V_flux)
+        self.b = Function(self.V)
+        self.qx = Function(self.V)
+        self.qy = Function(self.V)
+        self.N_n = Function(self.V) # N at previous timestep
+        self.storage = Function(self.V)
+        
+        # related expressions:
+        self.q_expr = None
+        self.qx_expr = None
+        self.b_expr = None
+        self.melt_n_expr = None
+        
+        # melt rate at previous time step for Warburton et al. (2024)
+        # melt rate formulation
+        self.melt_n = Function(self.V)
+
         # lake outline GeoDataFrame for defining boundary function
         self.outline = None
 
@@ -64,6 +91,31 @@ class model_setup:
         self.timesteps = None
         self.nt_save = None
         self.nt_check = None
+        self.j = 0          # time index for saving
+        
+        # output arrays
+        self.b_arr = None
+        self.N_arr = None
+        self.qx_arr = None
+        self.qy_arr = None
+        
+        # some boundary coordinates for plotting
+        self.boundary_coords = None
+        self.outflow_coords = None
+        
+        # some boundary facets
+        self.facets_outflow = None
+        self.bdry_facets = None
+        
+        # physical parameters:
+        self.g = params.g           # gravitational acceleration 
+        self.rho_i = params.rho_i   # ice density 
+        self.rho_w = params.rho_w   # density of water 
+        self.nu = params.nu         # water viscosity 
+        self.Lh = params.Lh         # latent heat 
+        self.omega = params.omega   # dimensionless parameter in water discharge law (laminar-turbulent transition)
+        self.n = params.n           # Glen's flow law parameter
+        self.A = params.A           # Glen's flow law coefficient 
 
     def set_lake_bdry(self,outline):
         for j in range(self.lake_bdry.x.array.size):
@@ -77,8 +129,7 @@ class model_setup:
         y_sub = y_d[(y_d >= self.bounds[2]) & (y_d <= self.bounds[3])]
         f_sub = f[np.ix_(
             (y_d >= self.bounds[2]) & (y_d <= self.bounds[3]),
-            (x_d >= self.bounds[0]) & (x_d <= self.bounds[1])
-        )]
+            (x_d >= self.bounds[0]) & (x_d <= self.bounds[1]))]
 
         # Interpolation
         f_interp = RegularGridInterpolator((x_sub, y_sub), f_sub.T, bounds_error=False, fill_value=None)
@@ -94,8 +145,8 @@ class model_setup:
         # create buffer for interpolating data to ensure 
         # that domain is covered by data 
         x_bfr, y_bfr = 0, 0
-        x__ = self.comm.gather(self.x[self.mask],root=0)
-        y__ = self.comm.gather(self.y[self.mask],root=0)
+        x__ = self.comm.gather(self.x[self.mask_dofs],root=0)
+        y__ = self.comm.gather(self.y[self.mask_dofs],root=0)
         if self.rank == 0:
             x__ = np.unique(np.concatenate(x__))
             y__ = np.unique(np.concatenate(y__))
@@ -105,15 +156,88 @@ class model_setup:
         x_bfr, y_bfr = self.comm.bcast(x_bfr, root=0), self.comm.bcast(y_bfr, root=0)
         return np.max([x_bfr, y_bfr])
     
-    def ghost_mask(self, V):
-        ghosts = V.dofmap.index_map.ghosts
-        global_to_local = V.dofmap.index_map.global_to_local
+    def ghost_mask(self, index_map):
+        ghosts = index_map.ghosts
+        global_to_local = index_map.global_to_local
         ghosts_local = global_to_local(ghosts)
-        size_local = V.dofmap.index_map.size_local
-        num_ghosts = V.dofmap.index_map.num_ghosts
+        size_local = index_map.size_local
+        num_ghosts = index_map.num_ghosts
         mask = np.ones(size_local+num_ghosts,dtype=bool)
         mask[ghosts_local] = False
         return mask
     
+    def save_dofmap(self):
+        # Extract the local geometry dofmap for owned cells
+        local_geom_dofmap = self.domain.geometry.dofmap
+
+        # Access the index map for geometry dofs
+        imap = self.domain.geometry.index_map()
+
+        # Build local-to-global mapping for coordinate dofs
+        local_to_global = np.empty(imap.size_local + imap.num_ghosts, dtype=np.int32)
+        local_to_global[:imap.size_local] = np.arange(*imap.local_range)
+        local_to_global[imap.size_local:] = imap.ghosts
+
+        # Map local dofs in the geometry dofmap to global indices
+        global_geom_dofmap = local_to_global[local_geom_dofmap]
+        all_dofmaps = self.comm.gather(global_geom_dofmap[self.mask_cells], root=0)
+        if self.rank == 0:
+            full_global_dofmap = np.concatenate(all_dofmaps)            
+            np.save(self.results_name+'/dofmap.npy',full_global_dofmap)
+    
     def solve(self):
         solve(self)
+        
+    def solvers_setup(self):
+        # interpolate initial conditions
+        self.b.interpolate(self.b_init) 
+        self.N_n.interpolate(self.N_init)
+        self.q.sub(0).interpolate(self.q_init.sub(0))
+        self.q.sub(1).interpolate(self.q_init.sub(1))    
+    
+        # create dolfinx expressions for interpolating water flux
+        self.q_expr = Expression(WaterFlux(self.b,Head(self.N,self.z_b,self.z_s), Reynolds(self.q)), self.V_flux.element.interpolation_points())  
+
+        self.dt = Constant(self.domain, 0.1*np.abs(self.timesteps[1]-self.timesteps[0]))
+        
+        # interpolate b using expression:
+        self.b_expr = Expression(self.b + self.dt*(Melt(self.q,Head(self.N,self.z_b,self.z_s),self.G,self.b,self.melt_n)/self.rho_i - Closure(self.b,self.N)),self.V.element.interpolation_points())
+
+        # define expression for computing melt rate at previous time step
+        self.melt_n_expr = Expression(Melt(self.q,Head(self.N,self.z_b,self.z_s),self.G,self.b,self.melt_n),self.V.element.interpolation_points())
+
+        if self.storage_on == False:
+            # turn off storage term by setting lake boundary function to zero
+            # in the weak form if desired
+            self.storage = Function(self.V)
+        else:
+            self.storage = self.lake_bdry
+        
+        self.pressure_solver = pressure_solver(self)
+    
+    def output_setup(self):
+        output_setup(self)
+    
+    def output_process(self):
+        output_process(self)
+        
+    def output_save(self):
+        output_save(self)
+    
+    def get_boundary_coords(self):
+        self.facets_outflow = locate_entities_boundary(self.domain, self.domain.topology.dim-1, self.OutflowBoundary)
+        self.bdry_facets = exterior_facet_indices(self.domain.topology)
+        self.boundary_coords = []
+        self.outflow_coords = []
+
+        for f in self.bdry_facets:
+            # Get vertices of this facet
+            vertices = self.domain.topology.connectivity(1, 0).links(f)
+            coords = self.domain.geometry.x[vertices]
+            self.boundary_coords.append(coords)
+            
+        for f in self.facets_outflow:
+            # Get vertices of this facet
+            vertices = self.domain.topology.connectivity(1, 0).links(f)
+            coords = self.domain.geometry.x[vertices]
+            self.outflow_coords.append(coords)

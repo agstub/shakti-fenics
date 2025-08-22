@@ -16,6 +16,12 @@ setup = importlib.import_module(sys.argv[1])
 # initialize md with MPI context
 md = setup.initialize(comm)
 
+# setup output arrays, etc...
+md.output_setup()
+
 # solve the problem, results are saved in a 'results' directory
-# visualize the solution with solution-plots.ipynb notebook
+# visualize the solution with plotting.ipynb notebook
 md.solve()
+
+# # # save the results
+md.output_save()
