@@ -9,7 +9,7 @@ from pathlib import Path
 from dolfinx.io import gmshio
 from netCDF4 import Dataset
 from load_lakes import lake_inventory
-from model_setup import model_setup
+from model import model
 
 def initialize(comm):
     # select lake from inventory and set geographic bounds
@@ -19,7 +19,7 @@ def initialize(comm):
     domain, *_ = gmshio.read_from_msh("../meshes/"+lake_name+"_mesh.msh", comm, gdim=2)
     
     # initialize model object
-    md = model_setup(comm,domain)
+    md = model(comm,domain)
     
     # setup name is module name
     md.setup_name = os.path.splitext(os.path.basename(__file__))[0]  

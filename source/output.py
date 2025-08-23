@@ -1,3 +1,5 @@
+# this module contains functions related to processing
+# and saving finite element solutions
 import numpy as np
 from dolfinx.fem import Expression,locate_dofs_topological
 import sys, os
@@ -26,7 +28,6 @@ def output_setup(md):
     # save global dofmap for plotting 
     md.save_dofmap()
     md.get_boundary_coords()
-
 
     # get lake boundary function
     lake_bdry__ = md.comm.gather(md.lake_bdry.x.array[md.mask_dofs],root=0)
@@ -59,6 +60,7 @@ def output_setup(md):
             for xy in coords:
                 outflow_coords_list.append(xy)
         
+        # store some basic model info
         model_config = {"lake_name": md.lake_name, "storage_on": md.storage_on, 
                   "outflow_on": md.outflow_on, "N_bdry": md.N_bdry, 
                   "x_min": np.array(x_min__).min(), 
@@ -82,6 +84,7 @@ def output_setup(md):
         md.qx_arr = np.zeros((nti,nd))
         md.qy_arr = np.zeros((nti,nd))
         
+        # save some non-time-dependent objects
         np.save(md.results_name+'/t.npy',t_i)
         np.save(md.results_name+'/nodes_x.npy',np.concatenate(nodes_x))
         np.save(md.results_name+'/nodes_y.npy',np.concatenate(nodes_y))
@@ -89,15 +92,12 @@ def output_setup(md):
         np.save(md.results_name+'/boundary_coords.npy',boundary_coords_list)
         np.save(md.results_name+'/outflow_coords.npy',outflow_coords_list)
         np.save(md.results_name+'/outflow_dofs.npy',np.concatenate(outflow_dofs__))
-        
-        
 
-        # copy setup file into results directory to for plotting/post-processing
-        # and to keep record of input 
         md.j = 0 # index for saving results at nt_save time intervals
+    
+    # initialize expressions for saving water flux components
     md.qx_expr = Expression(md.q.sub(0), md.V.element.interpolation_points())
     md.qy_expr = Expression(md.q.sub(1), md.V.element.interpolation_points())
-
 
 def output_process(md):
     # interpolate water flux components for saving
@@ -121,6 +121,7 @@ def output_process(md):
         md.j += 1
 
 def output_save(md):
+    # save solution arrays
     if md.rank == 0:
         np.save(md.results_name+f'/b.npy',md.b_arr)
         np.save(md.results_name+f'/N.npy',md.N_arr)

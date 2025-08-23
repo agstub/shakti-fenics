@@ -1,5 +1,5 @@
 # this file contains some constutitve relations for 
-# solving the hydrology problem
+# solving the subglacial hydrology problem
 from params import rho_i,rho_w,g,nu,omega,Lh,A,n
 from ufl import grad, dot, div
 
@@ -27,7 +27,7 @@ def Melt(q,h,G,b_n,melt_n):
     return m0 + m_diff
 
 def Closure(b,N):
-    # viscous closure term [m/s]
+    # viscous closure rate [m/s]
     return A*b*N*abs(N)**(n-1)
 
 def BackgroundGradient(z_b,z_s):
@@ -36,6 +36,6 @@ def BackgroundGradient(z_b,z_s):
     return grad(Head(0*z_b,z_b,z_s))
 
 def BackgroundPotential(z_b,z_s):
-    # background hydraulic potentially [dimensionless]
+    # background hydraulic potential [Pa]
     # assumes zero effective pressure (N) 
     return rho_w*g*Head(0*z_b,z_b,z_s)

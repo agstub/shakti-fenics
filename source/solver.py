@@ -1,4 +1,4 @@
-# This file contains the functions needed for solving the subglacial hydrology problem.
+# This file contains the functions needed for solving the subglacial hydrology problem
 import numpy as np
 from dolfinx.log import set_log_level, LogLevel
 import sys
@@ -12,19 +12,23 @@ def solve(md):
     # z_s: surface elevation function
     # q_in: inflow conditions on domain boundary
     # inputs: water input source term
+    # G: geothermal heat flux
 
-    # *see {repo root}/setup/setup_example.py for an example of how to set these
+    # *see {repo root}/setup/setup_cooke2.py for an example of how to set these
 
     # The solution is saved in a directory {repo root}/results/results_name:
-    # b = subglacial gap height (m)
-    # qx = subglacial water flux [x component] (m^2/s)
-    # qy = subglacial water flux [y component] (m^2/s)
-    # N = effective pressure (Pa)
+    # b = subglacial gap height [m]
+    # qx = subglacial water flux [x component] [m^2/s]
+    # qy = subglacial water flux [y component] [m^2/s]
+    # N = effective pressure [Pa]
+    #
+    # several other objects are saved (e.g. boundary coordinates, mesh nodes), 
+    # see output module or plotting notebook for usage
     
     # set dolfinx log output to desired level
     set_log_level(LogLevel.WARNING)
               
-    # define pde solver for N / other setup stuff
+    # define pde solver for N and other setup initialization
     md.solvers_setup()
 
     # time-stepping loop
@@ -34,6 +38,7 @@ def solve(md):
             sys.stdout.flush()
 
         if i>0:
+            # update timestep value 
             md.dt.value = np.abs(md.timesteps[i]-md.timesteps[i-1])
     
         # solve for effective pressure (N)
@@ -50,16 +55,15 @@ def solve(md):
         md.melt_n.interpolate(md.melt_n_expr)        
         
         # update gap height (b) via interpolation
-        # (i.e. integrating the evolution ODE element-wise)
+        # (i.e. integrating the db/dt evolution ODE element-wise)
         md.b.interpolate(md.b_expr)
         
         # bound gap height below by small amount
-        # note: this value influences flood amplitudes
         md.b.x.array[md.b.x.array<md.b_min] = md.b_min
         md.b.x.scatter_forward()
         
         if i % md.nt_save == 0:
-            # interpolate water flux components for saving
+            # interpolate and put function dofs into numpy arrays
             md.output_process()
                 
             if i % md.nt_check == 0:

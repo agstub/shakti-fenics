@@ -1,3 +1,5 @@
+# model class for initializing, solving, and post-processing
+# the subglacial hydrology model
 from dolfinx.fem import Expression, Function, Constant, functionspace
 from dolfinx.mesh import locate_entities_boundary, exterior_facet_indices
 from basix.ufl import element
@@ -10,6 +12,9 @@ from output import output_setup,output_process,output_save
 from pressure_solver import pressure_solver
 import params
 
+#--------------------------------------------------
+# helper functions for interpolating various
+# data sets onto the mesh:
 def get_nested_attr(obj, attr_path):
     for attr in attr_path.split('.'):
         obj = getattr(obj, attr)
@@ -18,11 +23,12 @@ def get_nested_attr(obj, attr_path):
 def set_array_slice(obj, attr_path, values):
     arr = get_nested_attr(obj, attr_path)
     arr[:] = values
+#--------------------------------------------------
 
 # model input class file
-class model_setup:
+class model:
     def __init__(self, comm, domain):
-        # mpi 
+        # MPI 
         self.comm = comm
         self.rank = comm.Get_rank()
         self.size = comm.Get_size()
@@ -36,9 +42,10 @@ class model_setup:
         self.mask_dofs = self.ghost_mask(self.V.dofmap.index_map) 
         self.mask_cells = self.ghost_mask(self.domain.topology.index_map(self.domain.topology.dim))
         
+        # outflow boundary for prescribing Dirichlet condition
         self.OutflowBoundary = None
         
-        # create bounding box for interpolating data
+        # bounding box for interpolating data onto mesh
         buffer = self.get_buffer()
         self.bounds = [self.x.min()-buffer,self.x.max()+buffer,
                        self.y.min()-buffer,self.y.max()+buffer]
@@ -59,23 +66,28 @@ class model_setup:
         self.N_bdry = 0.0                       # effective pressure condition at outflow boundary [Pa]
         self.b_min = 1.0e-5                     # minimum gap height [m]     
 
-        # define functions
-        # define solution function and set initial conditions
-        self.N = Function(self.V)
-        self.q = Function(self.V_flux)
-        self.b = Function(self.V)
-        self.qx = Function(self.V)
-        self.qy = Function(self.V)
-        self.N_n = Function(self.V) # N at previous timestep
-        self.storage = Function(self.V)
+        # solution functions
+        self.N = Function(self.V)               # effective pressure [Pa]
+        self.q = Function(self.V_flux)          # water discharge [m^2/s]
+        self.b = Function(self.V)               # gap height [m]
+        self.qx = Function(self.V)              # x-component of q
+        self.qy = Function(self.V)              # y-component of q
+        self.N_n = Function(self.V)             # N at previous timestep
+        self.storage = Function(self.V)         # storage function: 1=storage; 0=no-storage
         
-        # related expressions:
+        # related expressions for interpolating solutions
         self.q_expr = None
         self.qx_expr = None
         self.b_expr = None
         self.melt_n_expr = None
         
-        # melt rate at previous time step for Warburton et al. (2024)
+        # output arrays
+        self.b_arr = None
+        self.N_arr = None
+        self.qx_arr = None
+        self.qy_arr = None
+        
+        # melt rate at previous time step from Warburton et al. (2024)
         # melt rate formulation
         self.melt_n = Function(self.V)
 
@@ -88,42 +100,38 @@ class model_setup:
         self.setup_name = None
         
         # time stepping & frequency for saving files
-        self.timesteps = None
-        self.nt_save = None
-        self.nt_check = None
-        self.j = 0          # time index for saving
+        self.timesteps = None                   # number of timesteps in the model
+        self.nt_save = None                     # temporal frequency of saving solution
+        self.nt_check = None                    # how often to make checkpoint saves
+        self.j = 0                              # time index for saving solution
         
-        # output arrays
-        self.b_arr = None
-        self.N_arr = None
-        self.qx_arr = None
-        self.qy_arr = None
-        
-        # some boundary coordinates for plotting
-        self.boundary_coords = None
-        self.outflow_coords = None
+        # boundary coordinates for plotting boundaries
+        self.boundary_coords = None             # whole boundary
+        self.outflow_coords = None              # outflow boundary
         
         # some boundary facets
-        self.facets_outflow = None
-        self.bdry_facets = None
-        
+        self.facets_outflow = None              # boundary facets at outflow
+        self.bdry_facets = None                 # all boundary facets
+
         # physical parameters:
-        self.g = params.g           # gravitational acceleration 
-        self.rho_i = params.rho_i   # ice density 
-        self.rho_w = params.rho_w   # density of water 
-        self.nu = params.nu         # water viscosity 
-        self.Lh = params.Lh         # latent heat 
-        self.omega = params.omega   # dimensionless parameter in water discharge law (laminar-turbulent transition)
-        self.n = params.n           # Glen's flow law parameter
-        self.A = params.A           # Glen's flow law coefficient 
+        self.g = params.g                       # gravitational acceleration [m/s^2] 
+        self.rho_i = params.rho_i               # ice density [kg/m^3] 
+        self.rho_w = params.rho_w               # density of water [kg/m^3] 
+        self.nu = params.nu                     # water viscosity [m^2/s]
+        self.Lh = params.Lh                     # latent heat [J/kg]  
+        self.omega = params.omega               # dimensionless parameter in water discharge law (laminar-turbulent transition)
+        self.n = params.n                       # Glen's flow law parameter [dimensionless]
+        self.A = params.A                       # Glen's flow law coefficient [dimensionless]
 
     def set_lake_bdry(self,outline):
+        # set lake boundary dolfinx Function from a GeoDataFrame (outline input)
         for j in range(self.lake_bdry.x.array.size):
             point = Point(self.domain.geometry.x[j,0],self.domain.geometry.x[j,1])
             self.lake_bdry.x.array[j] = outline.geometry.contains(point).iloc[0]
         self.lake_bdry.x.scatter_forward()
 
     def interp_data(self, var_name, x_d, y_d, f):
+        # interpolat various data sets onto the finite element mesh
         # Subset grid and data
         x_sub = x_d[(x_d >= self.bounds[0]) & (x_d <= self.bounds[1])]
         y_sub = y_d[(y_d >= self.bounds[2]) & (y_d <= self.bounds[3])]
@@ -157,6 +165,7 @@ class model_setup:
         return np.max([x_bfr, y_bfr])
     
     def ghost_mask(self, index_map):
+        # mask ghosts (e.g., dofs or cells) given index map
         ghosts = index_map.ghosts
         global_to_local = index_map.global_to_local
         ghosts_local = global_to_local(ghosts)
@@ -167,6 +176,9 @@ class model_setup:
         return mask
     
     def save_dofmap(self):
+        # save global dofmap for reconstructing mesh
+        # and plotting solutions
+        
         # Extract the local geometry dofmap for owned cells
         local_geom_dofmap = self.domain.geometry.dofmap
 
@@ -186,6 +198,7 @@ class model_setup:
             np.save(self.results_name+'/dofmap.npy',full_global_dofmap)
     
     def solve(self):
+        # solve the hydrology problem
         solve(self)
         
     def solvers_setup(self):
@@ -198,6 +211,7 @@ class model_setup:
         # create dolfinx expressions for interpolating water flux
         self.q_expr = Expression(WaterFlux(self.b,Head(self.N,self.z_b,self.z_s), Reynolds(self.q)), self.V_flux.element.interpolation_points())  
 
+        # initialize time step
         self.dt = Constant(self.domain, 0.1*np.abs(self.timesteps[1]-self.timesteps[0]))
         
         # interpolate b using expression:
@@ -206,25 +220,33 @@ class model_setup:
         # define expression for computing melt rate at previous time step
         self.melt_n_expr = Expression(Melt(self.q,Head(self.N,self.z_b,self.z_s),self.G,self.b,self.melt_n),self.V.element.interpolation_points())
 
+        # define storage function based on model configuration
         if self.storage_on == False:
-            # turn off storage term by setting lake boundary function to zero
-            # in the weak form if desired
+            # turns off storage term by setting lake boundary function to zero
+            # in the weak form 
             self.storage = Function(self.V)
         else:
+            # else, storage is allowed within the lake boundary
             self.storage = self.lake_bdry
         
+        # define the solver for the effective pressure PDE
         self.pressure_solver = pressure_solver(self)
     
     def output_setup(self):
+        # output initialization
         output_setup(self)
     
     def output_process(self):
+        # put finite element solutions (dofs) into
+        # numpy arrays at each time step
         output_process(self)
         
     def output_save(self):
+        # save solution arrays arrays
         output_save(self)
     
     def get_boundary_coords(self):
+        # obtain boundary coordinates for plotting
         self.facets_outflow = locate_entities_boundary(self.domain, self.domain.topology.dim-1, self.OutflowBoundary)
         self.bdry_facets = exterior_facet_indices(self.domain.topology)
         self.boundary_coords = []

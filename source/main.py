@@ -1,6 +1,6 @@
-# This is a wrapper for solving the SHAKTI hydrology problem from command line with MPI
-# See setup.py for exanples of model setup options like bed and surface geometry,
-# meltwater inputs, mesh creation, etc...
+# This is a wrapper for solving the SHAKTI hydrology problem from command line 
+# See setup_cooke2.py for exanples of model setup options like bed and surface geometry,
+# meltwater inputs, geothermal heat flux, etc...
 
 import sys
 import importlib
@@ -19,9 +19,9 @@ md = setup.initialize(comm)
 # setup output arrays, etc...
 md.output_setup()
 
-# solve the problem, results are saved in a 'results' directory
-# visualize the solution with plotting.ipynb notebook
+# solve the problem, results are saved in a 'results_name' directory
+# visualize the solution with the plotting.ipynb notebook
 md.solve()
 
-# # # save the results
+# save the results
 md.output_save()
