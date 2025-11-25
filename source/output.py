@@ -34,6 +34,7 @@ def output_setup(md):
 
     # boundary coordinates
     outflow_coords__ = md.comm.gather(md.outflow_coords,root=0)
+    inflow_coords__ = md.comm.gather(md.inflow_coords,root=0)
     boundary_coords__ = md.comm.gather(md.boundary_coords,root=0)
     
     # get bounding box for plotting
@@ -60,19 +61,25 @@ def output_setup(md):
             for xy in coords:
                 outflow_coords_list.append(xy)
         
+        # get inflow coordinates from each process into one list
+        inflow_coords_list = []
+        for coords in inflow_coords__:
+            for xy in coords:
+                inflow_coords_list.append(xy)
+        
         # store some basic model info
-        model_config = {"lake_name": md.lake_name, "storage_on": md.storage_on, 
+        md.model_config.update({"lake_name": md.lake_name, "storage_on": md.storage_on, 
                   "outflow_on": md.outflow_on, "N_bdry": md.N_bdry, 
                   "x_min": np.array(x_min__).min(), 
                   "x_max": np.array(x_max__).max(),
                   "y_min": np.array(y_min__).min(), 
-                  "y_max": np.array(y_max__).max()}
+                  "y_max": np.array(y_max__).max()})
         
         with open(md.results_name+"/model_config.json", "w") as f:
-            json.dump(model_config, f, indent=2)
+            json.dump(md.model_config, f, indent=2)
         
         # number of time steps that are saved, time array for plotting
-        nti = int(md.timesteps.size/md.nt_save)
+        nti = int(np.ceil(md.timesteps.size/md.nt_save))
         t_i = np.linspace(0,md.timesteps.max(),nti)
         
         # number of global dofs for each solution
@@ -91,6 +98,7 @@ def output_setup(md):
         np.save(md.results_name+'/lake_bdry.npy',np.concatenate(lake_bdry__))
         np.save(md.results_name+'/boundary_coords.npy',boundary_coords_list)
         np.save(md.results_name+'/outflow_coords.npy',outflow_coords_list)
+        np.save(md.results_name+'/inflow_coords.npy',inflow_coords_list)
         np.save(md.results_name+'/outflow_dofs.npy',np.concatenate(outflow_dofs__))
 
         md.j = 0 # index for saving results at nt_save time intervals

@@ -1,10 +1,10 @@
 # model class for initializing, solving, and post-processing
 # the subglacial hydrology model
 from dolfinx.fem import Expression, Function, Constant, functionspace
-from dolfinx.mesh import locate_entities_boundary, exterior_facet_indices
+from dolfinx.mesh import locate_entities_boundary, exterior_facet_indices,locate_entities, meshtags
 from basix.ufl import element
 from shapely import Point
-from scipy.interpolate import RegularGridInterpolator
+from scipy.interpolate import RegularGridInterpolator, LinearNDInterpolator
 from constitutive import Melt,Closure,Head,WaterFlux,Reynolds
 import numpy as np
 from solver import solve
@@ -45,6 +45,9 @@ class model:
         # outflow boundary for prescribing Dirichlet condition
         self.OutflowBoundary = None
         
+        # inflow boundary for prescribing Neumann condition
+        self.InflowBoundary = None
+        
         # bounding box for interpolating data onto mesh
         buffer = self.get_buffer()
         self.bounds = [self.x.min()-buffer,self.x.max()+buffer,
@@ -54,6 +57,8 @@ class model:
         self.outflow_on = True                  # allow outflow from domain
         self.storage_on = True                  # turn on water storage in lake
 
+        self.model_config = {}
+
         # Physical input functions
         self.z_b = Function(self.V)             # bed elevation [m]
         self.z_s = Function(self.V)             # surface elevation [m]
@@ -61,11 +66,16 @@ class model:
         self.inputs = Function(self.V)          # water inputs to bed (moulins) [m/s]
         self.b_init = Function(self.V)          # initial gap height [m]
         self.N_init = Function(self.V)          # initial effective pressure [Pa]
-        self.q_init = Function(self.V_flux)     # initial water flux [m^2/s]
+        self.qx_init = Function(self.V)         # initial water flux x direction [m^2/s]
+        self.qy_init = Function(self.V)         # initial water flux x direction [m^2/s]
         self.lake_bdry = Function(self.V)       # lake boundary function (1=within lake, 0=outside lake)
         self.N_bdry = 0.0                       # effective pressure condition at outflow boundary [Pa]
         self.b_min = 1.0e-5                     # minimum gap height [m]     
-
+        self.b_max = 1e3                        # maximum gap height [m]
+        
+        # water inflow
+        self.q_in = 0.0
+        
         # solution functions
         self.N = Function(self.V)               # effective pressure [Pa]
         self.q = Function(self.V_flux)          # water discharge [m^2/s]
@@ -105,9 +115,12 @@ class model:
         self.nt_check = None                    # how often to make checkpoint saves
         self.j = 0                              # time index for saving solution
         
+        self.max_coldstarts = 500               # max number of time to start Newton at zero
+                                                # before trying a warm start again
+        
         # boundary coordinates for plotting boundaries
-        self.boundary_coords = None             # whole boundary
-        self.outflow_coords = None              # outflow boundary
+        self.boundary_coords = None             # whole boundary coordinates
+        self.outflow_coords = None              # outflow boundary coordinates
         
         # some boundary facets
         self.facets_outflow = None              # boundary facets at outflow
@@ -121,7 +134,7 @@ class model:
         self.Lh = params.Lh                     # latent heat [J/kg]  
         self.omega = params.omega               # dimensionless parameter in water discharge law (laminar-turbulent transition)
         self.n = params.n                       # Glen's flow law parameter [dimensionless]
-        self.A = params.A                       # Glen's flow law coefficient [dimensionless]
+        self.A = params.A                       # Glen's flow law coefficient [P^-n s^-1]
 
     def set_lake_bdry(self,outline):
         # set lake boundary dolfinx Function from a GeoDataFrame (outline input)
@@ -131,7 +144,7 @@ class model:
         self.lake_bdry.x.scatter_forward()
 
     def interp_data(self, var_name, x_d, y_d, f):
-        # interpolat various data sets onto the finite element mesh
+        # interpolate various data sets onto the finite element mesh
         # Subset grid and data
         x_sub = x_d[(x_d >= self.bounds[0]) & (x_d <= self.bounds[1])]
         y_sub = y_d[(y_d >= self.bounds[2]) & (y_d <= self.bounds[3])]
@@ -205,8 +218,8 @@ class model:
         # interpolate initial conditions
         self.b.interpolate(self.b_init) 
         self.N_n.interpolate(self.N_init)
-        self.q.sub(0).interpolate(self.q_init.sub(0))
-        self.q.sub(1).interpolate(self.q_init.sub(1))    
+        self.q.sub(0).interpolate(self.qx_init)
+        self.q.sub(1).interpolate(self.qy_init)    
     
         # create dolfinx expressions for interpolating water flux
         self.q_expr = Expression(WaterFlux(self.b,Head(self.N,self.z_b,self.z_s), Reynolds(self.q)), self.V_flux.element.interpolation_points())  
@@ -214,10 +227,10 @@ class model:
         # initialize time step
         self.dt = Constant(self.domain, 0.1*np.abs(self.timesteps[1]-self.timesteps[0]))
         
-        # interpolate b using expression:
+        # we update b by interpolating this expression:
         self.b_expr = Expression(self.b + self.dt*(Melt(self.q,Head(self.N,self.z_b,self.z_s),self.G,self.b,self.melt_n)/self.rho_i - Closure(self.b,self.N)),self.V.element.interpolation_points())
 
-        # define expression for computing melt rate at previous time step
+        # we use this expression for computing melt rate at previous time step:
         self.melt_n_expr = Expression(Melt(self.q,Head(self.N,self.z_b,self.z_s),self.G,self.b,self.melt_n),self.V.element.interpolation_points())
 
         # define storage function based on model configuration
@@ -248,9 +261,11 @@ class model:
     def get_boundary_coords(self):
         # obtain boundary coordinates for plotting
         self.facets_outflow = locate_entities_boundary(self.domain, self.domain.topology.dim-1, self.OutflowBoundary)
+        self.facets_inflow = locate_entities_boundary(self.domain, self.domain.topology.dim-1, self.InflowBoundary)
         self.bdry_facets = exterior_facet_indices(self.domain.topology)
         self.boundary_coords = []
         self.outflow_coords = []
+        self.inflow_coords = []
 
         for f in self.bdry_facets:
             # Get vertices of this facet
@@ -263,3 +278,84 @@ class model:
             vertices = self.domain.topology.connectivity(1, 0).links(f)
             coords = self.domain.geometry.x[vertices]
             self.outflow_coords.append(coords)
+            
+        for f in self.facets_inflow:
+            # Get vertices of this facet
+            vertices = self.domain.topology.connectivity(1, 0).links(f)
+            coords = self.domain.geometry.x[vertices]
+            self.inflow_coords.append(coords)
+    
+    def mark_boundary(self):
+        # Assign markers to each boundary segment (except the upper surface).
+        # "This is used at each time step to update the markers"
+        # NOTE: we shouldn't need to update the markers every timesetep unless
+        #       grounding line is migrating...
+        # Boundary marker numbering convention:
+        # 1 - Inflow boundary
+        # 2 - Outflow boundary
+        boundaries = [(1, lambda x: self.InflowBoundary(x)),
+                      (2, lambda x: self.OutflowBoundary(x))]
+        facet_indices, facet_markers = [], []
+        fdim = self.domain.topology.dim - 1
+        for (marker, locator) in boundaries:
+            facets = locate_entities(self.domain, fdim, locator)
+            facet_indices.append(facets)
+            facet_markers.append(np.full_like(facets, marker))
+        facet_indices = np.hstack(facet_indices).astype(np.int32)
+        facet_markers = np.hstack(facet_markers).astype(np.int32)
+        sorted_facets = np.argsort(facet_indices)
+        facet_tag = meshtags(self.domain, fdim, facet_indices[sorted_facets], facet_markers[sorted_facets])
+        return facet_tag
+    
+    def init_from_results(self,results,t):
+        # results = directory name of results
+        # t = time in days of results to initialize from
+        nodes_x = np.load(results+'/nodes_x.npy')
+        nodes_y = np.load(results+'/nodes_y.npy')
+        t_ = np.load(results+'/t.npy')
+        i = np.argmin(t-t_/86400)
+        
+        # nodes of current mesh
+        points_mesh = np.column_stack((self.x, self.y))
+        
+        # nodes of results mesh
+        points_results = np.zeros((nodes_x.size,2))
+        points_results[:,0] = nodes_x
+        points_results[:,1] = nodes_y
+        del nodes_x, nodes_y
+        
+        # interpolate N initial condition
+        N_0 = np.load(results+'/N.npy')
+        N_interp = LinearNDInterpolator(points_results,N_0[i])
+        self.N_init.x.array[:] = N_interp(points_mesh)
+        self.N_init.x.scatter_forward()
+        del N_0, N_interp
+        self.comm.barrier()
+        
+        # interpolate b initial  condition
+        b_0 = np.load(results+'/b.npy')
+        b_interp = LinearNDInterpolator(points_results,b_0[i])
+        self.b_init.x.array[:] = b_interp(points_mesh)
+        self.b_init.x.scatter_forward()
+        del b_0, b_interp
+        self.comm.barrier()
+        
+        # interpolate qx initial condition
+        qx_0 = np.load(results+'/qx.npy')
+        qx_interp = LinearNDInterpolator(points_results,qx_0[i])
+        self.qx_init.x.array[:] = qx_interp(points_mesh)
+        self.qx_init.x.scatter_forward()
+        del qx_0, qx_interp
+        self.comm.barrier()
+        
+        # interpolate qy initial condition
+        qy_0 = np.load(results+'/qy.npy')
+        qy_interp = LinearNDInterpolator(points_results,qy_0[i])
+        self.qy_init.x.array[:] = qy_interp(points_mesh)
+        self.qy_init.x.scatter_forward()
+        del qy_0, qy_interp
+        self.comm.barrier()
+        
+        
+        
+        

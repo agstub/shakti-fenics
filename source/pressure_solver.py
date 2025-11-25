@@ -4,7 +4,7 @@ from dolfinx.fem.petsc import NonlinearProblem
 from dolfinx.nls.petsc import NewtonSolver
 from petsc4py import PETSc
 from dolfinx.mesh import locate_entities_boundary
-from ufl import dx, TestFunction, dot,grad
+from ufl import dx, TestFunction, dot,grad, Measure
 from constitutive import Melt,Closure,Head,WaterFlux,Reynolds
 
 def get_bcs(md):
@@ -31,6 +31,11 @@ def pressure_solver(md):
         # define weak form
         N_ = TestFunction(md.V) # test function
 
+        # Mark bounadries of mesh and define a measure for integration
+        facet_tag = md.mark_boundary()
+        ds = Measure('ds', domain=md.domain, subdomain_data=facet_tag)
+
+        # hydrology definitions
         Re = Reynolds(md.q)
         head = Head(md.N,md.z_b,md.z_s)
         water_flux = WaterFlux(md.b,head, Re)
@@ -41,11 +46,22 @@ def pressure_solver(md):
         # weak form for water flux divergence div(q) equation:
         F = -dot(water_flux,grad(N_))*dx + ((1/md.rho_i-1/md.rho_w)*Melt(md.q,head,md.G,md.b,md.melt_n) - Closure(md.b,md.N)-lake_storage-md.inputs)*N_*dx
 
+        # add inflow term
+        F += md.q_in*N_*ds(1)
+
         # set initial guess for Newton solver to solution from previous timestep (warm start)
-        md.N.interpolate(md.N_n)
+        # md.N.interpolate(md.N_n)
   
         # define solver
         problem = NonlinearProblem(F, md.N, bcs=bcs)
         solver = NewtonSolver(md.comm, problem)
-
+        solver.error_on_nonconvergence = False
+        
+        ksp = solver.krylov_solver
+        opts = PETSc.Options()
+        option_prefix = ksp.getOptionsPrefix()
+        opts[f"{option_prefix}ksp_type"] = "cg" # preonly?
+        # opts[f"{option_prefix}pc_type"] = "cg"# ksp?   
+        ksp.setFromOptions()
+        
         return solver

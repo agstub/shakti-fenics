@@ -31,6 +31,8 @@ def solve(md):
     # define pde solver for N and other setup initialization
     md.solvers_setup()
 
+    flag_coldstart = 0
+
     # time-stepping loop
     for i in range(md.timesteps.size):
         if md.rank == 0 and (i+1)%10==0:
@@ -42,11 +44,21 @@ def solve(md):
             md.dt.value = np.abs(md.timesteps[i]-md.timesteps[i-1])
     
         # solve for effective pressure (N)
-        niter, converged = md.pressure_solver.solve(md.N)
-        assert (converged)
+        if flag_coldstart < 1:
+            niter, converged = md.pressure_solver.solve(md.N)
         
-        if converged == False:
-            break
+        if flag_coldstart>1 or converged == False:
+            if converged == False:
+                flag_coldstart = md.max_coldstarts
+            
+            # sometimes cold start helps with Newton convergence issues
+            md.N.x.array[:] = 0
+            md.N.x.scatter_forward()
+            niter, converged = md.pressure_solver.solve(md.N)
+            if converged == False:
+                break
+            else:
+                flag_coldstart -= 1
         
         # update water flux (q) via interpolation 
         md.q.interpolate(md.q_expr)
@@ -60,6 +72,7 @@ def solve(md):
         
         # bound gap height below by small amount
         md.b.x.array[md.b.x.array<md.b_min] = md.b_min
+        md.b.x.array[md.b.x.array>md.b_max] = md.b_max
         md.b.x.scatter_forward()
         
         if i % md.nt_save == 0:
@@ -74,5 +87,7 @@ def solve(md):
         # set solution at previous time step
         md.N_n.x.array[:] = md.N.x.array
         md.N_n.x.scatter_forward()
+        
+  
     
     return 
