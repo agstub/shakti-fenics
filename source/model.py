@@ -1,7 +1,7 @@
 # model class for initializing, solving, and post-processing
 # the subglacial hydrology model
 from dolfinx.fem import Expression, Function, Constant, functionspace
-from dolfinx.mesh import locate_entities_boundary, exterior_facet_indices,locate_entities, meshtags
+from dolfinx.mesh import locate_entities_boundary,locate_entities, meshtags
 from basix.ufl import element
 from shapely import Point
 from scipy.interpolate import RegularGridInterpolator, LinearNDInterpolator
@@ -11,6 +11,7 @@ from solver import solve
 from output import output_setup,output_process,output_save
 from pressure_solver import pressure_solver
 import params
+from mpi4py import MPI
 
 #--------------------------------------------------
 # helper functions for interpolating various
@@ -50,8 +51,13 @@ class model:
         
         # bounding box for interpolating data onto mesh
         buffer = self.get_buffer()
-        self.bounds = [self.x.min()-buffer,self.x.max()+buffer,
-                       self.y.min()-buffer,self.y.max()+buffer]
+        x_min = self.comm.allreduce(self.x.min(), op=MPI.MIN)
+        x_max = self.comm.allreduce(self.x.max(), op=MPI.MAX)
+        y_min = self.comm.allreduce(self.y.min(), op=MPI.MIN)
+        y_max = self.comm.allreduce(self.y.max(), op=MPI.MAX)
+        
+        self.bounds = [x_min-buffer,x_max+buffer,
+                       y_min-buffer,y_max+buffer]
         
         # BC options
         self.outflow_on = True                  # allow outflow from domain
@@ -145,6 +151,7 @@ class model:
 
     def interp_data(self, var_name, x_d, y_d, f):
         # interpolate various data sets onto the finite element mesh
+        
         # Subset grid and data
         x_sub = x_d[(x_d >= self.bounds[0]) & (x_d <= self.bounds[1])]
         y_sub = y_d[(y_d >= self.bounds[2]) & (y_d <= self.bounds[3])]
@@ -156,7 +163,7 @@ class model:
         f_interp = RegularGridInterpolator((x_sub, y_sub), f_sub.T, bounds_error=False, fill_value=None)
         points = np.column_stack((self.x, self.y))
         values = f_interp(points)
-
+  
         # Dynamically assign to array and call scatter_forward
         set_array_slice(self, f"{var_name}.x.array", values)
         get_nested_attr(self, f"{var_name}.x").scatter_forward()
@@ -262,7 +269,7 @@ class model:
         # obtain boundary coordinates for plotting
         self.facets_outflow = locate_entities_boundary(self.domain, self.domain.topology.dim-1, self.OutflowBoundary)
         self.facets_inflow = locate_entities_boundary(self.domain, self.domain.topology.dim-1, self.InflowBoundary)
-        self.bdry_facets = exterior_facet_indices(self.domain.topology)
+        self.bdry_facets = locate_entities_boundary(self.domain, self.domain.topology.dim-1, lambda x: 0*x[0] + True)
         self.boundary_coords = []
         self.outflow_coords = []
         self.inflow_coords = []
