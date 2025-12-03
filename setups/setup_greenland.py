@@ -117,7 +117,7 @@ def initialize(comm):
     md.q_in = -1.0e-4            # water inflow through inflow boundary (negative for into domain)
 
     # define time stepping 
-    days = 2*365 
+    days = 365 
     nt_per_day = 24
     t_final = (days/365)*3.154e7
     md.timesteps = np.linspace(0,t_final,int(days*nt_per_day))
