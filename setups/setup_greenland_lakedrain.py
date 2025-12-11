@@ -79,9 +79,10 @@ def initialize(comm):
     md.qx_init.interpolate(lambda x: 0*x[0]) 
     md.qy_init.interpolate(lambda x: 0*x[0])  
     
-    # try initializing from reference results
-    # t_d = 8*365
-    # md.init_from_results('../results/Thw_124_reffine',t_d)
+    # try initializing from reference 'spinup' results if availaible
+    # (!!) note: comment this out if spinup has not been run
+    t_d = 600 # model day to initialize from
+    md.init_from_results('../results/store_spinup',t_d)
 
     # # define outflow boundary based on minimum potenetial condition (best checked by plotting in notebook)
     potential_interp = lambda x,y: rho_i*g*h_interp((x,y)) + (rho_w-rho_i)*g*bed_interp((x,y))
@@ -102,9 +103,11 @@ def initialize(comm):
     md.storage_on = False # this is for subglacial lake storage
 
     # define source term in this example 
-    q_l = 0.0 
+    q_l = 1.0e-3
     sigma_l = 1000/3.0
-    # md.inputs.interpolate(lambda x: q_l*np.exp(1)**(-((x[0]-x_l)**2+(x[1]-y_l)**2)/sigma_l**2) + 0*x[0])
+    
+    # (!!) note: comment out this line for no-drainage "spinup":
+    md.inputs.interpolate(lambda x: q_l*np.exp(1)**(-((x[0]-x_l)**2+(x[1]-y_l)**2)/sigma_l**2) + 0*x[0])
 
     if md.rank==0:
         md.model_config['x_l'] = x_l
@@ -117,16 +120,17 @@ def initialize(comm):
     md.q_in = -1.0e-4            # water inflow through inflow boundary (negative for into domain)
 
     # define time stepping 
-    days = 365 
-    nt_per_day = 24
+    days = 1                      # (!!) note: set to 2*365 for spinup
+    nt_per_hour = 10              # (!!) note: set to 1 for spinup
+    nt_per_day = 24*nt_per_hour
     t_final = (days/365)*3.154e7
     md.timesteps = np.linspace(0,t_final,int(days*nt_per_day))
 
     # frequency for saving files
-    md.nt_save = nt_per_day
-    md.nt_check = 50*md.nt_save # checkpoint save for real-time 
+    md.nt_save = nt_per_hour     # (!!) note: set to nt_per_day for spinup
+    md.nt_check = 50*md.nt_save  # checkpoint save for real-time plotting...
     
     # results directory name
-    md.results_name = f'{(Path(__file__).resolve()).parent.parent}/results/{md.lake_name}_spinup'
+    md.results_name = f'{(Path(__file__).resolve()).parent.parent}/results/{md.lake_name}_lakedrain'
     
     return md

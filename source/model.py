@@ -86,8 +86,8 @@ class model:
         self.N = Function(self.V)               # effective pressure [Pa]
         self.q = Function(self.V_flux)          # water discharge [m^2/s]
         self.b = Function(self.V)               # gap height [m]
-        self.qx = Function(self.V)              # x-component of q
-        self.qy = Function(self.V)              # y-component of q
+        self.qx = Function(self.V)              # x-component of q [m^2/s]
+        self.qy = Function(self.V)              # y-component of q [m^2/s]
         self.N_n = Function(self.V)             # N at previous timestep
         self.storage = Function(self.V)         # storage function: 1=storage; 0=no-storage
         
