@@ -106,6 +106,35 @@ def output_setup(md):
     # initialize expressions for saving water flux components
     md.qx_expr = Expression(md.q.sub(0), md.V.element.interpolation_points())
     md.qy_expr = Expression(md.q.sub(1), md.V.element.interpolation_points())
+    
+    
+    # save initial conditions        
+    # mask out the ghost dofs and gather
+    b0__ = md.comm.gather(md.b_init.x.array[md.mask_dofs],root=0)
+    N0__ = md.comm.gather(md.N_init.x.array[md.mask_dofs],root=0)
+    qx0__ = md.comm.gather(md.qx_init.x.array[md.mask_dofs],root=0)
+    qy0__ = md.comm.gather(md.qy_init.x.array[md.mask_dofs],root=0)
+
+    if md.rank == 0:
+        # save the dof's as numpy arrays
+        b0_arr = np.concatenate(b0__)
+        N0_arr = np.concatenate(N0__)
+        qx0_arr = np.concatenate(qx0__)
+        qy0_arr = np.concatenate(qy0__)
+
+        np.save(md.results_name+f'/b_init.npy',b0_arr)
+        np.save(md.results_name+f'/N_init.npy',N0_arr)
+        np.save(md.results_name+f'/qx_init.npy',qx0_arr)
+        np.save(md.results_name+f'/qy_init.npy',qy0_arr)
+
+
+def output_save(md):
+    # save solution arrays
+    if md.rank == 0:
+        np.save(md.results_name+f'/b.npy',md.b_arr)
+        np.save(md.results_name+f'/N.npy',md.N_arr)
+        np.save(md.results_name+f'/qx.npy',md.qx_arr)
+        np.save(md.results_name+f'/qy.npy',md.qy_arr)
 
 def output_process(md):
     # interpolate water flux components for saving

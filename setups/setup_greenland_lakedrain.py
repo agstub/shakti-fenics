@@ -93,7 +93,7 @@ def initialize(comm):
         P_min, P_max, P_std = np.min(potential__),np.max(potential__),np.std(potential__)
     comm.barrier()    
     P_min, P_max, P_std = comm.bcast(P_min, root=0),comm.bcast(P_max, root=0),comm.bcast(P_std, root=0)
-    md.OutflowBoundary = lambda x: np.less(np.abs(potential_interp(x[0],x[1])-P_min),1*P_std)
+    md.OutflowBoundary = lambda x: np.less(np.abs(potential_interp(x[0],x[1])-P_min),1.5*P_std)
     md.InflowBoundary = lambda x: np.less(np.abs(potential_interp(x[0],x[1])-P_max),0.7*P_std)
     
     # decide if outflow is allowed or not (default True)

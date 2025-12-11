@@ -93,7 +93,7 @@ def initialize(comm):
         P_min, P_max, P_std = np.min(potential__),np.max(potential__),np.std(potential__)
     comm.barrier()    
     P_min, P_max, P_std = comm.bcast(P_min, root=0),comm.bcast(P_max, root=0),comm.bcast(P_std, root=0)
-    md.OutflowBoundary = lambda x: np.less(np.abs(potential_interp(x[0],x[1])-P_min),1*P_std)
+    md.OutflowBoundary = lambda x: np.less(np.abs(potential_interp(x[0],x[1])-P_min),1.5*P_std)
     md.InflowBoundary = lambda x: np.less(np.abs(potential_interp(x[0],x[1])-P_max),0.7*P_std)
     
     # decide if outflow is allowed or not (default True)
@@ -127,7 +127,7 @@ def initialize(comm):
     md.timesteps = np.linspace(0,t_final,int(days*nt_per_day))
 
     # frequency for saving files
-    md.nt_save = nt_per_hour     # (!!) note: set to nt_per_day for spinup
+    md.nt_save = nt_per_day      # (!!) note: set to nt_per_day for spinup
     md.nt_check = 50*md.nt_save  # checkpoint save for real-time plotting...
     
     # results directory name
