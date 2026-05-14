@@ -139,7 +139,7 @@ def output_save(md):
 def output_process(md):
     # interpolate water flux components for saving
     md.qx.interpolate(md.qx_expr)
-    md.qy.interpolate(md.qx_expr)
+    md.qy.interpolate(md.qy_expr)
         
     # mask out the ghost dofs and gather
     b__ = md.comm.gather(md.b.x.array[md.mask_dofs],root=0)
