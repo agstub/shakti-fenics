@@ -96,8 +96,8 @@ def output_setup(md):
         md.j = 0 # index for saving results at nt_save time intervals
     
     # initialize expressions for saving water flux components
-    md.qx_expr = Expression(md.q.sub(0), md.V.element.interpolation_points())
-    md.qy_expr = Expression(md.q.sub(1), md.V.element.interpolation_points())
+    md.qx_expr = Expression(md.q.sub(0), md.V.element.interpolation_points)
+    md.qy_expr = Expression(md.q.sub(1), md.V.element.interpolation_points)
 
 def output_process(md):
     # interpolate water flux components for saving

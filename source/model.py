@@ -209,16 +209,16 @@ class model:
         self.q.sub(1).interpolate(self.q_init.sub(1))    
     
         # create dolfinx expressions for interpolating water flux
-        self.q_expr = Expression(WaterFlux(self.b,Head(self.N,self.z_b,self.z_s), Reynolds(self.q)), self.V_flux.element.interpolation_points())  
+        self.q_expr = Expression(WaterFlux(self.b,Head(self.N,self.z_b,self.z_s), Reynolds(self.q)), self.V_flux.element.interpolation_points)  
 
         # initialize time step
         self.dt = Constant(self.domain, 0.1*np.abs(self.timesteps[1]-self.timesteps[0]))
         
         # interpolate b using expression:
-        self.b_expr = Expression(self.b + self.dt*(Melt(self.q,Head(self.N,self.z_b,self.z_s),self.G,self.b,self.melt_n)/self.rho_i - Closure(self.b,self.N)),self.V.element.interpolation_points())
+        self.b_expr = Expression(self.b + self.dt*(Melt(self.q,Head(self.N,self.z_b,self.z_s),self.G,self.b,self.melt_n)/self.rho_i - Closure(self.b,self.N)),self.V.element.interpolation_points)
 
         # define expression for computing melt rate at previous time step
-        self.melt_n_expr = Expression(Melt(self.q,Head(self.N,self.z_b,self.z_s),self.G,self.b,self.melt_n),self.V.element.interpolation_points())
+        self.melt_n_expr = Expression(Melt(self.q,Head(self.N,self.z_b,self.z_s),self.G,self.b,self.melt_n),self.V.element.interpolation_points)
 
         # define storage function based on model configuration
         if self.storage_on == False:

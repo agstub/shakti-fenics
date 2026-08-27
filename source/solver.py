@@ -42,7 +42,8 @@ def solve(md):
             md.dt.value = np.abs(md.timesteps[i]-md.timesteps[i-1])
     
         # solve for effective pressure (N)
-        niter, converged = md.pressure_solver.solve(md.N)
+        md.pressure_solver.solve()
+        converged = md.pressure_solver.solver.getConvergedReason()
         assert (converged)
         
         if converged == False:

@@ -43,9 +43,20 @@ def pressure_solver(md):
 
         # set initial guess for Newton solver to solution from previous timestep (warm start)
         md.N.interpolate(md.N_n)
+        
+        petsc_options = {
+        "snes_type": "newtonls",
+        "snes_linesearch_type": "none",
+        "snes_monitor_cancel": None,
+        "snes_atol": 1e-8,
+        "snes_rtol": 1e-8,
+        "snes_stol": 1e-8,
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "pc_factor_mat_solver_type": "mumps",
+        } 
   
         # define solver
-        problem = NonlinearProblem(F, md.N, bcs=bcs)
-        solver = NewtonSolver(md.comm, problem)
+        solver = NonlinearProblem(F, md.N, bcs=bcs,petsc_options=petsc_options,petsc_options_prefix="pressure")
 
         return solver

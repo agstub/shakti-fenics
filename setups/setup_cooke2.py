@@ -6,7 +6,7 @@ sys.path.insert(0, '../source')
 import numpy as np
 from params import rho_i, rho_w, g
 from pathlib import Path
-from dolfinx.io import gmshio
+from dolfinx.io import gmsh
 from netCDF4 import Dataset
 from load_lakes import lake_inventory
 from model import model
@@ -16,7 +16,7 @@ def initialize(comm):
     lake_name = 'Cook_E2' 
     
     # Define mesh (see create_mesh.ipynb notebook for example)
-    domain, *_ = gmshio.read_from_msh("../meshes/"+lake_name+"_mesh.msh", comm, gdim=2)
+    domain, *_ = gmsh.read_from_msh("../meshes/"+lake_name+"_mesh.msh", comm, gdim=2)
     
     # initialize model object
     md = model(comm,domain)
@@ -81,13 +81,13 @@ def initialize(comm):
     md.outflow_on = True
 
     # decide if lake is represented with a storage-type term (default True)
-    md.storage_on = False
+    md.storage_on = True
 
     # define moulin source term - zero (none) in this example
     md.inputs.interpolate(lambda x:  0*x[0] )
 
     # define time stepping 
-    days = 10*365
+    days = 1*365
     nt_per_day = 24
     t_final = (days/365)*3.154e7
     md.timesteps = np.linspace(0,t_final,int(days*nt_per_day))
@@ -97,6 +97,6 @@ def initialize(comm):
     md.nt_check = 50*md.nt_save # checkpoint save for real-time 
     
     # results directory name
-    md.results_name = f'{(Path(__file__).resolve()).parent.parent}/results/{md.lake_name}_{int(md.N_bdry/1e3):d}kpa_nostorage'
+    md.results_name = f'{(Path(__file__).resolve()).parent.parent}/results/{md.lake_name}_{int(md.N_bdry/1e3):d}kpa_TEST2'
     
     return md
