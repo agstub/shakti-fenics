@@ -286,11 +286,7 @@ class model:
             self.inflow_coords.append(coords)
     
     def mark_boundary(self):
-        # Assign markers to each boundary segment (except the upper surface).
-        # "This is used at each time step to update the markers"
-        # NOTE: we shouldn't need to update the markers every timesetep unless
-        #       grounding line is migrating...
-        # Boundary marker numbering convention:
+        # Assign markers to each boundary segment: 
         # 1 - Inflow boundary
         # 2 - Outflow boundary
         boundaries = [(1, lambda x: self.InflowBoundary(x)),

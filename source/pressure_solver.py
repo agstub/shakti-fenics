@@ -1,7 +1,6 @@
 # This file contains the functions needed for solving the effective pressure PDE
 from dolfinx.fem import dirichletbc,locate_dofs_topological
 from dolfinx.fem.petsc import NonlinearProblem
-from dolfinx.nls.petsc import NewtonSolver
 from petsc4py import PETSc
 from dolfinx.mesh import locate_entities_boundary
 from ufl import dx, TestFunction, dot,grad, Measure

@@ -6,7 +6,7 @@ sys.path.insert(0, '../source')
 import numpy as np
 from params import rho_i, rho_w, g
 from pathlib import Path
-from dolfinx.io import gmshio
+from dolfinx.io import gmsh
 from netCDF4 import Dataset
 from load_lakes import lake_inventory
 from model import model
@@ -17,7 +17,7 @@ def initialize(comm):
     lake_name = 'Thw_124' 
     
     # Define mesh (see create_mesh.ipynb notebook for example)
-    domain, *_ = gmshio.read_from_msh("../meshes/"+lake_name+"_mesh_fine.msh", comm, gdim=2)
+    domain, *_ = gmsh.read_from_msh("../meshes/"+lake_name+"_mesh_fine.msh", comm, gdim=2)
     
     # initialize model object
     md = model(comm,domain)
@@ -136,7 +136,7 @@ def initialize(comm):
     md.q_in = -2.0e-5            # water inflow through inflow boundary (negative for into domain)
 
     # define time stepping 
-    days = 30*365 # subtract pump start time
+    days = 1*365 # subtract pump start time
     nt_per_day = 24
     t_final = (days/365)*3.154e7
     md.timesteps = np.linspace(0,t_final,int(days*nt_per_day))
@@ -146,6 +146,6 @@ def initialize(comm):
     md.nt_check = 50*md.nt_save # checkpoint save for real-time 
     
     # results directory name
-    md.results_name = f'{(Path(__file__).resolve()).parent.parent}/results/{md.lake_name}_pump2fine'
+    md.results_name = f'{(Path(__file__).resolve()).parent.parent}/results/{md.lake_name}_test'
     
     return md
