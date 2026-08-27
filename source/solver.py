@@ -45,7 +45,8 @@ def solve(md):
     
         # solve for effective pressure (N)
         if flag_coldstart < 1:
-            niter, converged = md.pressure_solver.solve(md.N)
+            md.pressure_solver.solve()
+            converged = md.pressure_solver.solver.getConvergedReason()
         
         if flag_coldstart>1 or converged == False:
             if converged == False:
@@ -54,7 +55,8 @@ def solve(md):
             # sometimes cold start helps with Newton convergence issues
             md.N.x.array[:] = 0
             md.N.x.scatter_forward()
-            niter, converged = md.pressure_solver.solve(md.N)
+            md.pressure_solver.solve()
+            converged = md.pressure_solver.solver.getConvergedReason()
             if converged == False:
                 break
             else:
